@@ -1,0 +1,11 @@
+.env
+client_secret.json
+token.json
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+node_modules/
+.next/
+coverage/
+.DS_Store

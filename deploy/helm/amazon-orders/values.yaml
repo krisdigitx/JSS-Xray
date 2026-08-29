@@ -1,0 +1,37 @@
+backend:
+  replicaCount: 1
+  image:
+    repository: YOUR_DOCKERHUB_USER/amazon-orders-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+frontend:
+  replicaCount: 1
+  image:
+    repository: YOUR_DOCKERHUB_USER/amazon-orders-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+    loadBalancerIP: ""
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 250m, memory: 256Mi}
+
+existingSecret: amazon-orders-secrets
+
+postgresql:
+  image: postgres:17-alpine
+  database: amazon_orders
+  username: amazon_orders
+  persistence:
+    size: 10Gi
+    storageClass: ""
+
+gmailSync:
+  enabled: true
+  schedule: "*/30 * * * *"

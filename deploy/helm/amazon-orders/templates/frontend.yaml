@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: amazon-orders-frontend
+spec:
+  type: {{ .Values.frontend.service.type }}
+  {{- if .Values.frontend.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.frontend.service.loadBalancerIP }}
+  {{- end }}
+  selector: {app: amazon-orders-frontend}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amazon-orders-frontend
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels: {app: amazon-orders-frontend}
+  template:
+    metadata:
+      labels: {app: amazon-orders-frontend}
+    spec:
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+          resources:
+{{ toYaml .Values.frontend.resources | indent 12 }}

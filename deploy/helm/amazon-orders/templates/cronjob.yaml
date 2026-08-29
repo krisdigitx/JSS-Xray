@@ -1,0 +1,27 @@
+{{- if .Values.gmailSync.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: amazon-orders-gmail-sync
+spec:
+  schedule: {{ .Values.gmailSync.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+              imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+              command: ["python", "-m", "app.sync"]
+              env:
+                - name: DATABASE_URL
+                  value: "postgresql+psycopg://{{ .Values.postgresql.username }}:$(POSTGRES_PASSWORD)@amazon-orders-postgres:5432/{{ .Values.postgresql.database }}"
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: {{ .Values.existingSecret }}, key: POSTGRES_PASSWORD}
+              envFrom:
+                - secretRef: {name: {{ .Values.existingSecret }}}
+{{- end }}
