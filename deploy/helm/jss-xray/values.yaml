@@ -1,7 +1,7 @@
 backend:
   replicaCount: 1
   image:
-    repository: YOUR_DOCKERHUB_USER/jss-xray-backend
+    repository: krisdigitx/jss-xray-backend
     tag: latest
     pullPolicy: IfNotPresent
   resources:
@@ -11,7 +11,7 @@ backend:
 frontend:
   replicaCount: 1
   image:
-    repository: YOUR_DOCKERHUB_USER/jss-xray-frontend
+    repository: krisdigitx/jss-xray-frontend
     tag: latest
     pullPolicy: IfNotPresent
   service:
