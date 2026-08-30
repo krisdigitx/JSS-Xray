@@ -1,7 +1,7 @@
 backend:
   replicaCount: 1
   image:
-    repository: YOUR_DOCKERHUB_USER/amazon-orders-backend
+    repository: YOUR_DOCKERHUB_USER/jss-xray-backend
     tag: latest
     pullPolicy: IfNotPresent
   resources:
@@ -11,7 +11,7 @@ backend:
 frontend:
   replicaCount: 1
   image:
-    repository: YOUR_DOCKERHUB_USER/amazon-orders-frontend
+    repository: YOUR_DOCKERHUB_USER/jss-xray-frontend
     tag: latest
     pullPolicy: IfNotPresent
   service:
@@ -22,7 +22,7 @@ frontend:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {cpu: 250m, memory: 256Mi}
 
-existingSecret: amazon-orders-secrets
+existingSecret: jss-xray-secrets
 
 postgresql:
   image: postgres:17-alpine

@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 env:
-  BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/amazon-orders-backend
-  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/amazon-orders-frontend
+  BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jss-xray-backend
+  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jss-xray-frontend
 
 jobs:
   docker:

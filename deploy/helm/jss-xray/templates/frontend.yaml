@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: amazon-orders-frontend
+  name: jss-xray-frontend
 spec:
   type: {{ .Values.frontend.service.type }}
   {{- if .Values.frontend.service.loadBalancerIP }}
   loadBalancerIP: {{ .Values.frontend.service.loadBalancerIP }}
   {{- end }}
-  selector: {app: amazon-orders-frontend}
+  selector: {app: jss-xray-frontend}
   ports:
     - port: {{ .Values.frontend.service.port }}
       targetPort: 3000
@@ -15,14 +15,14 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: amazon-orders-frontend
+  name: jss-xray-frontend
 spec:
   replicas: {{ .Values.frontend.replicaCount }}
   selector:
-    matchLabels: {app: amazon-orders-frontend}
+    matchLabels: {app: jss-xray-frontend}
   template:
     metadata:
-      labels: {app: amazon-orders-frontend}
+      labels: {app: jss-xray-frontend}
     spec:
       containers:
         - name: frontend

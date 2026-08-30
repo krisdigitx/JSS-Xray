@@ -1,4 +1,4 @@
-# amazon-orders-app
+# jss-xray
 
 Self-hosted Amazon.co.uk order search application.
 
@@ -28,8 +28,8 @@ Your separate `home-lab` repository should own:
 
 GitHub Actions pushes:
 
-- `<dockerhub-user>/amazon-orders-backend:<tag>`
-- `<dockerhub-user>/amazon-orders-frontend:<tag>`
+- `<dockerhub-user>/jss-xray-backend:<tag>`
+- `<dockerhub-user>/jss-xray-frontend:<tag>`
 
 For `main`, it also publishes `latest`. Every build is tagged with the Git SHA.
 
@@ -89,7 +89,7 @@ pytest
 The reusable chart is under:
 
 ```text
-deploy/helm/amazon-orders
+deploy/helm/jss-xray
 ```
 
 Your `home-lab` ArgoCD Application can use this chart from this repository and `$values` from `home-lab`.
@@ -100,23 +100,23 @@ Example multi-source ArgoCD application:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: amazon-orders
+  name: jss-xray
   namespace: argocd
 spec:
   project: default
   sources:
-    - repoURL: https://github.com/YOUR_GITHUB_USER/amazon-orders-app.git
+    - repoURL: https://github.com/YOUR_GITHUB_USER/jss-xray.git
       targetRevision: main
-      path: deploy/helm/amazon-orders
+      path: deploy/helm/jss-xray
       helm:
         valueFiles:
-          - $values/apps/amazon-orders/values.yaml
+          - $values/apps/jss-xray/values.yaml
     - repoURL: https://github.com/YOUR_GITHUB_USER/home-lab.git
       targetRevision: main
       ref: values
   destination:
     server: https://kubernetes.default.svc
-    namespace: amazon-orders
+    namespace: jss-xray
   syncPolicy:
     automated:
       prune: true
@@ -125,23 +125,23 @@ spec:
       - CreateNamespace=true
 ```
 
-Example `home-lab/apps/amazon-orders/values.yaml`:
+Example `home-lab/apps/jss-xray/values.yaml`:
 
 ```yaml
 backend:
   image:
-    repository: YOUR_DOCKERHUB_USER/amazon-orders-backend
+    repository: YOUR_DOCKERHUB_USER/jss-xray-backend
     tag: sha-REPLACE_ME
 
 frontend:
   image:
-    repository: YOUR_DOCKERHUB_USER/amazon-orders-frontend
+    repository: YOUR_DOCKERHUB_USER/jss-xray-frontend
     tag: sha-REPLACE_ME
   service:
     type: LoadBalancer
     loadBalancerIP: 192.168.1.230
 
-existingSecret: amazon-orders-secrets
+existingSecret: jss-xray-secrets
 
 postgresql:
   persistence:

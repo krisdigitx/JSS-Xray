@@ -8,7 +8,7 @@ from .db import Base, engine, get_db
 from .models import Order, OrderItem
 from .sync import sync_orders
 
-app = FastAPI(title="Amazon.co.uk Order Search", version="1.0.0")
+app = FastAPI(title="JSS XRay", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

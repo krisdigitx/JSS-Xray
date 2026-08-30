@@ -20,7 +20,7 @@ export default function Home() {
 
   return <main>
     <div className="hero">
-      <div><h1>Amazon Orders</h1><p>Search your Amazon.co.uk purchase history.</p></div>
+      <div><h1>JSS XRay</h1><p>Search your Amazon.co.uk purchase history.</p></div>
       <div className="count">{orders.length} orders</div>
     </div>
     <form onSubmit={e => {e.preventDefault(); load(q);}} className="search">

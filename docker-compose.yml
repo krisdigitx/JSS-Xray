@@ -2,13 +2,13 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-amazon_orders}
-      POSTGRES_USER: ${POSTGRES_USER:-amazon_orders}
+      POSTGRES_DB: ${POSTGRES_DB:-jss_xray}
+      POSTGRES_USER: ${POSTGRES_USER:-jss_xray}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-amazon_orders} -d ${POSTGRES_DB:-amazon_orders}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jss_xray} -d ${POSTGRES_DB:-jss_xray}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -16,7 +16,7 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-amazon_orders}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-amazon_orders}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jss_xray}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-jss_xray}
       GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID}
       GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET}
       GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN}

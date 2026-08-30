@@ -1,0 +1,45 @@
+backend:
+  replicaCount: 1
+  image:
+    repository: YOUR_DOCKERHUB_USER/jss-xray-backend
+    tag: latest
+    pullPolicy: Always
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+frontend:
+  replicaCount: 1
+  image:
+    repository: YOUR_DOCKERHUB_USER/jss-xray-frontend
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: LoadBalancer
+    port: 80
+    loadBalancerIP: 192.168.1.230
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+existingSecret: jss-xray-secrets
+
+postgresql:
+  image: postgres:17-alpine
+  database: jss_xray
+  username: jss_xray
+  persistence:
+    size: 10Gi
+    storageClass: local-path
+
+gmailSync:
+  enabled: true
+  schedule: "*/30 * * * *"

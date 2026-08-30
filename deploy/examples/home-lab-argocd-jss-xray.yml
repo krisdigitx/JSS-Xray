@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: jss-xray
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_GITHUB_USER/jss-xray.git
+    targetRevision: main
+    path: deploy/helm/jss-xray
+    helm:
+      valueFiles:
+        - values-home-lab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: jss-xray
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
