@@ -25,3 +25,14 @@ def test_delivery_event():
     body = "Order # 203-1677420-3774750"
     p = parse_amazon_email("Delivered: ‘Example...’", body)
     assert p.event_type == "delivered"
+
+
+def test_product_falls_back_to_subject():
+    body = """
+    Order # 203-1677420-3774750
+    Total £6.99
+    """
+    parsed = parse_amazon_email("Ordered: ‘Ofuca USB C Charger Cable’", body)
+    assert parsed is not None
+    assert parsed.product_name == "Ofuca USB C Charger Cable"
+    assert parsed.event_type == "ordered"

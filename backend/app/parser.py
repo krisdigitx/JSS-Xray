@@ -47,6 +47,26 @@ def _money(value: str | None):
         return None
     return Decimal(value.replace(",", "."))
 
+
+def _product_from_subject(subject: str) -> str | None:
+    """Best-effort product title from Amazon transactional subjects.
+
+    Examples:
+      Ordered: ‘USB C Charger Cable’
+      Dispatched: "Coffee Grinder"
+      Delivered: Dog food
+    """
+    if ":" not in subject:
+        return None
+    candidate = subject.split(":", 1)[1].strip()
+    candidate = candidate.strip(" \t\r\n\"'‘’“”")
+    if not candidate:
+        return None
+    # Avoid treating generic status text as a product name.
+    if candidate.lower() in {"your order", "your amazon order", "order update"}:
+        return None
+    return candidate[:1000]
+
 def parse_amazon_email(subject: str, body: str) -> ParsedOrder | None:
     order = ORDER_RE.search(body)
     if not order:
@@ -59,6 +79,7 @@ def parse_amazon_email(subject: str, body: str) -> ParsedOrder | None:
     else:
         am = ASIN_RE.search(body)
         asin = am.group(1).upper() if am else None
+        product_name = _product_from_subject(subject)
 
     seller = SELLER_RE.search(body)
     condition = COND_RE.search(body)

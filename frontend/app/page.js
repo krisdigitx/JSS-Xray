@@ -1,19 +1,30 @@
 "use client";
 import { useEffect, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function Home() {
   const [q, setQ] = useState("");
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   async function load(search = "") {
     setLoading(true);
+    setError("");
     try {
       const r = await fetch(`${API}/api/orders?q=${encodeURIComponent(search)}`);
-      setOrders(await r.json());
-    } finally { setLoading(false); }
+      if (!r.ok) {
+        throw new Error(`API request failed (${r.status})`);
+      }
+      const data = await r.json();
+      setOrders(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setOrders([]);
+      setError(e instanceof Error ? e.message : "Failed to load orders");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -27,6 +38,7 @@ export default function Home() {
       <input value={q} onChange={e => setQ(e.target.value)} placeholder="Product, order number, ASIN or seller…" />
       <button>Search</button>
     </form>
+    {error && <p><strong>API error:</strong> {error}</p>}
     {loading ? <p>Loading…</p> :
       <div className="table">
         {orders.map(o => <article key={o.amazon_order_id}>

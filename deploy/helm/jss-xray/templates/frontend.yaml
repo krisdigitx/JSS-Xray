@@ -30,5 +30,8 @@ spec:
           imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
           ports:
             - containerPort: 3000
+          env:
+            - name: BACKEND_INTERNAL_URL
+              value: "http://jss-xray-backend:8000"
           resources:
 {{ toYaml .Values.frontend.resources | indent 12 }}

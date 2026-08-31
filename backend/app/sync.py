@@ -24,14 +24,53 @@ def _body(payload: dict) -> str:
 def _headers(payload: dict) -> dict:
     return {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
 
+def _add_item_if_missing(db, order: Order, parsed) -> bool:
+    if not parsed.product_name:
+        return False
+    existing = db.scalar(
+        select(OrderItem).where(
+            OrderItem.order_id == order.id,
+            OrderItem.asin == parsed.asin,
+            OrderItem.product_name == parsed.product_name,
+        )
+    )
+    if existing:
+        return False
+    db.add(OrderItem(
+        order_id=order.id,
+        product_name=parsed.product_name,
+        asin=parsed.asin,
+        seller=parsed.seller,
+        condition=parsed.condition,
+        quantity=parsed.quantity,
+        item_price=parsed.item_price,
+        product_url=parsed.product_url,
+    ))
+    return True
+
+def _refresh_order_status(db, order: Order) -> None:
+    latest = db.scalar(
+        select(OrderEvent)
+        .where(OrderEvent.order_id == order.id)
+        .order_by(OrderEvent.event_time.desc().nullslast(), OrderEvent.id.desc())
+        .limit(1)
+    )
+    if latest:
+        order.status = latest.event_type
+
 def sync_orders(max_results=500):
     Base.metadata.create_all(bind=engine)
-    processed = skipped = 0
+    processed = skipped = enriched = 0
+    touched_order_ids = set()
+
     with SessionLocal() as db:
         for message_id in list_message_ids(max_results=max_results):
-            if db.scalar(select(OrderEvent).where(OrderEvent.gmail_message_id == message_id)):
-                skipped += 1
-                continue
+            existing_event = db.scalar(
+                select(OrderEvent).where(OrderEvent.gmail_message_id == message_id)
+            )
+
+            # Existing events are still parsed so older data can be enriched with
+            # product/item details after parser improvements.
             msg = read_message(message_id)
             headers = _headers(msg["payload"])
             subject = headers.get("subject", "")
@@ -46,34 +85,25 @@ def sync_orders(max_results=500):
                 db.add(order)
                 db.flush()
 
-            order.status = parsed.event_type
+            touched_order_ids.add(order.id)
+
             if parsed.total is not None:
                 order.order_total = parsed.total
 
             date_value = headers.get("date")
             event_time = parsedate_to_datetime(date_value) if date_value else datetime.now(timezone.utc)
-            if parsed.event_type == "ordered" and order.order_date is None:
-                order.order_date = event_time
 
-            if parsed.product_name:
-                existing = db.scalar(
-                    select(OrderItem).where(
-                        OrderItem.order_id == order.id,
-                        OrderItem.asin == parsed.asin,
-                        OrderItem.product_name == parsed.product_name,
-                    )
-                )
-                if not existing:
-                    db.add(OrderItem(
-                        order_id=order.id,
-                        product_name=parsed.product_name,
-                        asin=parsed.asin,
-                        seller=parsed.seller,
-                        condition=parsed.condition,
-                        quantity=parsed.quantity,
-                        item_price=parsed.item_price,
-                        product_url=parsed.product_url,
-                    ))
+            if parsed.event_type == "ordered":
+                if order.order_date is None or event_time < order.order_date:
+                    order.order_date = event_time
+
+            if _add_item_if_missing(db, order, parsed):
+                enriched += 1
+
+            if existing_event:
+                db.commit()
+                skipped += 1
+                continue
 
             db.add(OrderEvent(
                 order_id=order.id,
@@ -84,7 +114,16 @@ def sync_orders(max_results=500):
             ))
             db.commit()
             processed += 1
-    return {"processed": processed, "skipped": skipped}
+
+        # Gmail usually returns newest first. Recompute status from the latest
+        # persisted event instead of allowing an older message to overwrite it.
+        for order_id in touched_order_ids:
+            order = db.get(Order, order_id)
+            if order:
+                _refresh_order_status(db, order)
+        db.commit()
+
+    return {"processed": processed, "enriched": enriched, "skipped": skipped}
 
 if __name__ == "__main__":
     print(sync_orders())
