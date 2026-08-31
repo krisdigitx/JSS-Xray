@@ -43,3 +43,14 @@ postgresql:
 gmailSync:
   enabled: true
   schedule: "*/30 * * * *"
+
+amazonAccounts:
+  - slug: tauri-royale
+    name: Tauri Royale
+    secretName: jss-xray-secrets
+  - slug: polaris-zone
+    name: Polaris Zone
+    secretName: jss-xray-polaris-zone
+  - slug: jss-traders
+    name: JSS Traders
+    secretName: jss-xray-jss-traders

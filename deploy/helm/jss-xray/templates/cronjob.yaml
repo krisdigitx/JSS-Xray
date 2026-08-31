@@ -1,10 +1,12 @@
 {{- if .Values.gmailSync.enabled }}
+{{- range .Values.amazonAccounts }}
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: jss-xray-gmail-sync
+  name: jss-xray-gmail-sync-{{ .slug }}
 spec:
-  schedule: {{ .Values.gmailSync.schedule | quote }}
+  schedule: {{ $.Values.gmailSync.schedule | quote }}
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
@@ -13,15 +15,35 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: sync
-              image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
-              imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+              image: "{{ $.Values.backend.image.repository }}:{{ $.Values.backend.image.tag }}"
+              imagePullPolicy: {{ $.Values.backend.image.pullPolicy }}
               command: ["python", "-m", "app.sync"]
               env:
-                - name: DATABASE_URL
-                  value: "postgresql+psycopg://{{ .Values.postgresql.username }}:$(POSTGRES_PASSWORD)@jss-xray-postgres:5432/{{ .Values.postgresql.database }}"
                 - name: POSTGRES_PASSWORD
                   valueFrom:
-                    secretKeyRef: {name: {{ .Values.existingSecret }}, key: POSTGRES_PASSWORD}
-              envFrom:
-                - secretRef: {name: {{ .Values.existingSecret }}}
+                    secretKeyRef:
+                      name: {{ $.Values.existingSecret }}
+                      key: POSTGRES_PASSWORD
+                - name: DATABASE_URL
+                  value: "postgresql+psycopg://{{ $.Values.postgresql.username }}:$(POSTGRES_PASSWORD)@jss-xray-postgres:5432/{{ $.Values.postgresql.database }}"
+                - name: ACCOUNT_SLUG
+                  value: {{ .slug | quote }}
+                - name: ACCOUNT_NAME
+                  value: {{ .name | quote }}
+                - name: GMAIL_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .secretName }}
+                      key: GMAIL_CLIENT_ID
+                - name: GMAIL_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .secretName }}
+                      key: GMAIL_CLIENT_SECRET
+                - name: GMAIL_REFRESH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .secretName }}
+                      key: GMAIL_REFRESH_TOKEN
+{{- end }}
 {{- end }}

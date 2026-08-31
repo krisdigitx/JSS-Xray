@@ -2,13 +2,17 @@ import base64
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from sqlalchemy import select
-from .db import Base, SessionLocal, engine
+from .config import settings
+from .db import SessionLocal
 from .gmail import list_message_ids, read_message
-from .models import Order, OrderEvent, OrderItem
+from .models import AmazonAccount, Order, OrderEvent, OrderItem
 from .parser import parse_amazon_email
+from .schema import ensure_schema
+
 
 def _decode(data: str) -> str:
     return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", errors="replace")
+
 
 def _body(payload: dict) -> str:
     if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
@@ -21,12 +25,15 @@ def _body(payload: dict) -> str:
         return _decode(payload["body"]["data"])
     return ""
 
+
 def _headers(payload: dict) -> dict:
     return {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+
 
 def _add_item_if_missing(db, order: Order, parsed) -> bool:
     if not parsed.product_name:
         return False
+
     existing = db.scalar(
         select(OrderItem).where(
             OrderItem.order_id == order.id,
@@ -36,6 +43,7 @@ def _add_item_if_missing(db, order: Order, parsed) -> bool:
     )
     if existing:
         return False
+
     db.add(OrderItem(
         order_id=order.id,
         product_name=parsed.product_name,
@@ -48,6 +56,7 @@ def _add_item_if_missing(db, order: Order, parsed) -> bool:
     ))
     return True
 
+
 def _refresh_order_status(db, order: Order) -> None:
     latest = db.scalar(
         select(OrderEvent)
@@ -58,19 +67,25 @@ def _refresh_order_status(db, order: Order) -> None:
     if latest:
         order.status = latest.event_type
 
+
+def _get_account(db) -> AmazonAccount:
+    account = db.scalar(select(AmazonAccount).where(AmazonAccount.slug == settings.account_slug))
+    if not account:
+        account = AmazonAccount(slug=settings.account_slug, name=settings.account_name, enabled=True)
+        db.add(account)
+        db.flush()
+    return account
+
+
 def sync_orders(max_results=500):
-    Base.metadata.create_all(bind=engine)
+    ensure_schema()
     processed = skipped = enriched = 0
     touched_order_ids = set()
 
     with SessionLocal() as db:
-        for message_id in list_message_ids(max_results=max_results):
-            existing_event = db.scalar(
-                select(OrderEvent).where(OrderEvent.gmail_message_id == message_id)
-            )
+        account = _get_account(db)
 
-            # Existing events are still parsed so older data can be enriched with
-            # product/item details after parser improvements.
+        for message_id in list_message_ids(max_results=max_results):
             msg = read_message(message_id)
             headers = _headers(msg["payload"])
             subject = headers.get("subject", "")
@@ -79,13 +94,28 @@ def sync_orders(max_results=500):
                 skipped += 1
                 continue
 
-            order = db.scalar(select(Order).where(Order.amazon_order_id == parsed.order_id))
+            order = db.scalar(
+                select(Order).where(
+                    Order.account_id == account.id,
+                    Order.amazon_order_id == parsed.order_id,
+                )
+            )
             if not order:
-                order = Order(amazon_order_id=parsed.order_id)
+                order = Order(
+                    account_id=account.id,
+                    amazon_order_id=parsed.order_id,
+                )
                 db.add(order)
                 db.flush()
 
             touched_order_ids.add(order.id)
+
+            existing_event = db.scalar(
+                select(OrderEvent).where(
+                    OrderEvent.order_id == order.id,
+                    OrderEvent.gmail_message_id == message_id,
+                )
+            )
 
             if parsed.total is not None:
                 order.order_total = parsed.total
@@ -115,15 +145,19 @@ def sync_orders(max_results=500):
             db.commit()
             processed += 1
 
-        # Gmail usually returns newest first. Recompute status from the latest
-        # persisted event instead of allowing an older message to overwrite it.
         for order_id in touched_order_ids:
             order = db.get(Order, order_id)
             if order:
                 _refresh_order_status(db, order)
         db.commit()
 
-    return {"processed": processed, "enriched": enriched, "skipped": skipped}
+    return {
+        "account": settings.account_slug,
+        "processed": processed,
+        "enriched": enriched,
+        "skipped": skipped,
+    }
+
 
 if __name__ == "__main__":
     print(sync_orders())
