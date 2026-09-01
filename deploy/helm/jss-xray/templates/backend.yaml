@@ -36,7 +36,16 @@ spec:
             - secretRef: {name: {{ .Values.existingSecret }}}
           resources:
 {{ toYaml .Values.backend.resources | indent 12 }}
+          startupProbe:
+            httpGet: {path: /healthz, port: 8000}
+            periodSeconds: 5
+            failureThreshold: 24
           readinessProbe:
             httpGet: {path: /healthz, port: 8000}
-            initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            periodSeconds: 30
+            timeoutSeconds: 2
+            failureThreshold: 3

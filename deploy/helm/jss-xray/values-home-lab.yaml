@@ -32,6 +32,11 @@ frontend:
 
 existingSecret: jss-xray-secrets
 
+migration:
+  enabled: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 180
+
 postgresql:
   image: postgres:17-alpine
   database: jss_xray
@@ -42,6 +47,8 @@ postgresql:
 
 gmailSync:
   enabled: true
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
   schedule: "*/30 * * * *"
   maxNewMessages: 50
   backfillMessages: 50

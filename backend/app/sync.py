@@ -7,7 +7,6 @@ from .db import SessionLocal
 from .gmail import list_message_ids, read_message
 from .models import AmazonAccount, Order, OrderEvent, OrderItem
 from .parser import parse_amazon_email
-from .schema import ensure_schema
 
 
 def _decode(data: str) -> str:
@@ -145,7 +144,6 @@ def _backfill_message_ids(db, account_id: int, limit: int):
 
 
 def sync_orders(max_results=None):
-    ensure_schema()
     processed = skipped = enriched = 0
     touched_order_ids = set()
 

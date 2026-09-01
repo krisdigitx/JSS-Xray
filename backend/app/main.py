@@ -6,7 +6,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from .db import get_db
 from .models import AmazonAccount, Order, OrderItem
-from .schema import ensure_schema
 from .sync import sync_orders
 
 app = FastAPI(title="JSS XRay", version="1.2.0")
@@ -18,9 +17,6 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def startup():
-    ensure_schema()
 
 
 @app.get("/healthz")

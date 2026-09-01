@@ -6,6 +6,8 @@ kind: CronJob
 metadata:
   name: jss-xray-gmail-sync-{{ .slug }}
 spec:
+  successfulJobsHistoryLimit: {{ $.Values.gmailSync.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $.Values.gmailSync.failedJobsHistoryLimit }}
   schedule: {{ default $.Values.gmailSync.schedule .schedule | quote }}
   concurrencyPolicy: Forbid
   jobTemplate:
