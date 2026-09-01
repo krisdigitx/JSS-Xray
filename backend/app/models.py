@@ -30,6 +30,8 @@ class Order(Base):
     order_total: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="GBP")
     delivery_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivered_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    estimated_delivery_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     order_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -30,6 +30,19 @@ def _headers(payload: dict) -> dict:
     return {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
 
 
+
+def _parse_date_text(value: str | None):
+    if not value:
+        return None
+    for fmt in ("%d %B %Y", "%B %d, %Y"):
+        try:
+            dt = datetime.strptime(value, fmt)
+            return dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return None
+
+
 def _add_item_if_missing(db, order: Order, parsed) -> bool:
     if not parsed.product_name:
         return False
@@ -122,6 +135,16 @@ def sync_orders(max_results=500):
 
             date_value = headers.get("date")
             event_time = parsedate_to_datetime(date_value) if date_value else datetime.now(timezone.utc)
+
+            parsed_delivered = _parse_date_text(getattr(parsed, "delivered_date_text", None))
+            parsed_estimated = _parse_date_text(getattr(parsed, "estimated_delivery_text", None))
+
+            if parsed_estimated:
+                order.estimated_delivery_date = parsed_estimated
+
+            if parsed.event_type == "delivered":
+                order.delivered_date = parsed_delivered or event_time
+                order.estimated_delivery_date = None
 
             if parsed.event_type == "ordered":
                 if order.order_date is None or event_time < order.order_date:

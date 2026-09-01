@@ -10,6 +10,7 @@ export default function Home() {
   const [accounts, setAccounts] = useState([]);
   const [account, setAccount] = useState("all");
   const [orders, setOrders] = useState([]);
+  const [dashboard, setDashboard] = useState({ account_totals: [], monthly: [] });
   const [pagination, setPagination] = useState({
     page: 1, page_size: PAGE_SIZE, total: 0, total_pages: 0,
     has_previous: false, has_next: false,
@@ -24,6 +25,16 @@ export default function Home() {
       setAccounts(await r.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load accounts");
+    }
+  }
+
+  async function loadDashboard(selectedAccount = account) {
+    try {
+      const r = await fetch(`${API}/api/dashboard?account=${encodeURIComponent(selectedAccount)}`);
+      if (!r.ok) throw new Error(`Dashboard API failed (${r.status})`);
+      setDashboard(await r.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load dashboard");
     }
   }
 
@@ -62,6 +73,7 @@ export default function Home() {
   useEffect(() => {
     loadAccounts();
     load("", 1, "all");
+    loadDashboard("all");
   }, []);
 
   function submitSearch(e) {
@@ -75,6 +87,7 @@ export default function Home() {
     const selected = e.target.value;
     setAccount(selected);
     load(activeSearch, 1, selected);
+    loadDashboard(selected);
   }
 
   function goToPage(page) {
@@ -99,6 +112,32 @@ export default function Home() {
       </label>
     </div>
 
+    <section className="dashboard">
+      <h2>Dashboard</h2>
+      <div className="cards">
+        {dashboard.account_totals.map(a => (
+          <div className="card" key={a.slug}>
+            <small>{a.name}</small>
+            <strong>{a.total_orders}</strong>
+            <span>Total orders</span>
+            <em>£{Number(a.total_spend || 0).toFixed(2)} spend</em>
+          </div>
+        ))}
+      </div>
+      <div className="monthly">
+        <h3>Monthly orders{account !== "all" ? ` · ${accounts.find(a => a.slug === account)?.name || account}` : ""}</h3>
+        {dashboard.monthly.length === 0 ? <p>No monthly order data yet.</p> :
+          dashboard.monthly.map(m => (
+            <div className="month-row" key={m.month}>
+              <span>{new Date(`${m.month}T00:00:00`).toLocaleDateString("en-GB", {month:"long", year:"numeric"})}</span>
+              <strong>{m.total_orders} orders</strong>
+              <span>£{Number(m.total_spend || 0).toFixed(2)}</span>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
     <form onSubmit={submitSearch} className="search">
       <input
         value={q}
@@ -121,7 +160,25 @@ export default function Home() {
           {account === "all" && <small className="account-badge">{o.account?.name}</small>}
         </div>
         <span className="status">{o.status.replaceAll("_", " ")}</span>
-        <strong>{o.order_total != null ? `£${o.order_total.toFixed(2)}` : "—"}</strong>
+        <div className="order-meta">
+          <div className="price">
+            <small>Purchase price</small>
+            <strong>{o.items?.[0]?.item_price != null
+              ? `£${Number(o.items[0].item_price).toFixed(2)}`
+              : o.order_total != null ? `£${Number(o.order_total).toFixed(2)}` : "—"}</strong>
+            {o.items?.[0]?.quantity > 1 && <small>Qty {o.items[0].quantity}</small>}
+          </div>
+          <div className="delivery-date">
+            <small>{o.status === "delivered" ? "Delivered" : "Estimated delivery"}</small>
+            <strong>{
+              o.status === "delivered" && o.delivered_date
+                ? new Date(o.delivered_date).toLocaleDateString("en-GB")
+                : o.status !== "delivered" && o.estimated_delivery_date
+                  ? new Date(o.estimated_delivery_date).toLocaleDateString("en-GB")
+                  : "—"
+            }</strong>
+          </div>
+        </div>
       </article>)}
     </div>
 

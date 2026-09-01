@@ -23,6 +23,8 @@ class ParsedOrder:
     item_price: Decimal | None = None
     total: Decimal | None = None
     product_url: str | None = None
+    delivered_date_text: str | None = None
+    estimated_delivery_text: str | None = None
 
 def event_from_subject(subject: str) -> str:
     s = subject.lower()
@@ -66,6 +68,37 @@ def _product_from_subject(subject: str) -> str | None:
     if candidate.lower() in {"your order", "your amazon order", "order update"}:
         return None
     return candidate[:1000]
+
+
+def _extract_delivery_dates(subject: str, body: str):
+    text = f"{subject}\n{body}"
+
+    delivered = None
+    estimated = None
+
+    delivered_patterns = [
+        r"Delivered\s+(?:on\s+)?(?:[A-Za-z]+,\s*)?(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+        r"Delivered\s+(?:on\s+)?(?:[A-Za-z]+,\s*)?([A-Za-z]+\s+\d{1,2},\s+\d{4})",
+    ]
+    estimated_patterns = [
+        r"(?:Arriving|Delivery|Estimated delivery)\s+(?:by|on)?\s*(?:[A-Za-z]+,\s*)?(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+        r"(?:Arriving|Delivery|Estimated delivery)\s+(?:by|on)?\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+\s+\d{1,2},\s+\d{4})",
+    ]
+
+    for p in delivered_patterns:
+        m = re.search(p, text, re.I)
+        if m:
+            delivered = m.group(1)
+            break
+
+    for p in estimated_patterns:
+        m = re.search(p, text, re.I)
+        if m:
+            estimated = m.group(1)
+            break
+
+    return delivered, estimated
+
 
 def parse_amazon_email(subject: str, body: str) -> ParsedOrder | None:
     order = ORDER_RE.search(body)

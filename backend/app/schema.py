@@ -29,6 +29,8 @@ def ensure_schema() -> None:
 
         # Existing installations do not have account_id. Existing data belongs to Tauri Royale.
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS account_id INTEGER"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_date TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimated_delivery_date TIMESTAMPTZ"))
         conn.execute(text("""
             UPDATE orders
             SET account_id = (

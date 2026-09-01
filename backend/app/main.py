@@ -46,6 +46,69 @@ def accounts(db: Session = Depends(get_db)):
     ]
 
 
+
+
+@app.get("/api/dashboard")
+def dashboard(
+    account: str | None = Query(default=None, description="Amazon account slug; omit or use 'all' for all accounts"),
+    db: Session = Depends(get_db),
+):
+    account_filter = []
+    if account and account != "all":
+        account_filter.append(AmazonAccount.slug == account)
+
+    totals_stmt = (
+        select(
+            AmazonAccount.slug,
+            AmazonAccount.name,
+            func.count(Order.id).label("total_orders"),
+            func.coalesce(func.sum(Order.order_total), 0).label("total_spend"),
+        )
+        .select_from(AmazonAccount)
+        .outerjoin(Order, Order.account_id == AmazonAccount.id)
+        .where(AmazonAccount.enabled.is_(True))
+        .group_by(AmazonAccount.id, AmazonAccount.slug, AmazonAccount.name)
+        .order_by(AmazonAccount.name)
+    )
+    account_totals = [{
+        "slug": row.slug,
+        "name": row.name,
+        "total_orders": int(row.total_orders or 0),
+        "total_spend": float(row.total_spend or 0),
+    } for row in db.execute(totals_stmt)]
+
+    month_expr = func.date_trunc("month", Order.order_date)
+    monthly_stmt = (
+        select(
+            month_expr.label("month"),
+            func.count(Order.id).label("total_orders"),
+            func.coalesce(func.sum(Order.order_total), 0).label("total_spend"),
+        )
+        .select_from(Order)
+        .join(AmazonAccount)
+        .where(Order.order_date.is_not(None))
+    )
+    if account_filter:
+        monthly_stmt = monthly_stmt.where(*account_filter)
+    monthly_stmt = (
+        monthly_stmt
+        .group_by(month_expr)
+        .order_by(month_expr.desc())
+        .limit(24)
+    )
+    monthly = [{
+        "month": row.month.date().isoformat() if row.month else None,
+        "total_orders": int(row.total_orders or 0),
+        "total_spend": float(row.total_spend or 0),
+    } for row in db.execute(monthly_stmt)]
+
+    return {
+        "account_totals": account_totals,
+        "monthly": monthly,
+        "selected_account": account or "all",
+    }
+
+
 @app.get("/api/orders")
 def orders(
     q: str | None = Query(default=None),
@@ -104,6 +167,8 @@ def orders(
             "status": o.status,
             "order_total": float(o.order_total) if o.order_total is not None else None,
             "currency": o.currency,
+            "delivered_date": o.delivered_date,
+            "estimated_delivery_date": o.estimated_delivery_date,
             "account": {
                 "slug": o.account.slug,
                 "name": o.account.name,
