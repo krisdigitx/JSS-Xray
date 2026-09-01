@@ -69,3 +69,46 @@ def test_delivery_dates_are_returned():
     """
     p = parse_amazon_email("Ordered: Example", body)
     assert p.estimated_delivery_text == "3 September 2026"
+
+
+def test_amazon_superscript_price():
+    body = """
+    <div>Order # 202-0190583-1372366</div>
+    <div>Kement Wireless Security Camera</div>
+    <div>Quantity: 1</div>
+    <div>£8<sup>49</sup></div>
+    <div>Total</div><div>£8<sup>49</sup></div>
+    """
+    p = parse_amazon_email("Ordered: Kement Wireless Security Camera", body)
+    assert p is not None
+    assert str(p.total) == "8.49"
+    assert str(p.item_price) == "8.49"
+
+
+def test_amazon_split_plain_text_price():
+    body = """
+    Order # 206-2250955-3549969
+    Quantity: 1
+    £5
+    39
+    Total
+    £5
+    39
+    """
+    p = parse_amazon_email("Dispatched: Happy Birthday Banner", body)
+    assert p is not None
+    assert str(p.total) == "5.39"
+    assert str(p.item_price) == "5.39"
+
+
+def test_amazon_superscript_does_not_become_849():
+    body = """
+    Order # 202-1806212-6922711
+    Quantity: 1
+    £8<sup class="price-fraction">49</sup>
+    Total £8<sup class="price-fraction">49</sup>
+    """
+    p = parse_amazon_email("Ordered: Kement Wireless Security Camera", body)
+    assert p is not None
+    assert str(p.total) == "8.49"
+    assert str(p.item_price) == "8.49"

@@ -69,11 +69,47 @@ def event_from_subject(subject: str) -> str:
 
 
 def _normalise_text(value: str) -> str:
+    """
+    Convert Amazon plain-text/HTML email content into regex-friendly text.
+
+    Amazon.co.uk commonly renders GBP prices with the pence in a smaller
+    <sup> element, e.g. £8<sup>49</sup>. If HTML tags are simply stripped,
+    that becomes £849. This normaliser converts those forms to £8.49 first.
+    """
     value = html.unescape(value or "")
+
+    # Common Amazon HTML: £8<sup>49</sup>, £8 <sup>49</sup>, or nested tags.
+    value = re.sub(
+        r"£\s*([0-9][0-9,]*)\s*<sup[^>]*>\s*([0-9]{2})\s*</sup>",
+        lambda m: f"£{m.group(1)}.{m.group(2)}",
+        value,
+        flags=re.I,
+    )
+
+    # Some templates use spans for the fractional part.
+    value = re.sub(
+        r"£\s*([0-9][0-9,]*)\s*"
+        r"<span[^>]*(?:a-price-fraction|price-fraction|fraction)[^>]*>\s*([0-9]{2})\s*</span>",
+        lambda m: f"£{m.group(1)}.{m.group(2)}",
+        value,
+        flags=re.I,
+    )
+
     value = re.sub(r"(?i)<br\s*/?>", "\n", value)
-    value = re.sub(r"(?i)</(?:p|div|tr|li|h[1-6])>", "\n", value)
+    value = re.sub(r"(?i)</(?:p|div|tr|li|h[1-6]|td)>", "\n", value)
     value = re.sub(r"<[^>]+>", " ", value)
     value = value.replace("\xa0", " ")
+
+    # Handle MIME/plain-text conversions of Amazon's split price typography:
+    #   £8 49
+    #   £8\n49
+    # But only when the fractional component is exactly two digits.
+    value = re.sub(
+        r"£\s*([0-9][0-9,]*)[ \t\r\n]+([0-9]{2})(?![0-9])",
+        lambda m: f"£{m.group(1)}.{m.group(2)}",
+        value,
+    )
+
     value = re.sub(r"[ \t]+", " ", value)
     value = re.sub(r"\n\s+", "\n", value)
     return value
