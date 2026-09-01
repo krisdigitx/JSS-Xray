@@ -1,7 +1,7 @@
 import base64
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from .config import settings
 from .db import SessionLocal
 from .gmail import list_message_ids, read_message
@@ -134,21 +134,38 @@ def _latest_event_time(db, account_id: int):
 def _backfill_message_ids(db, account_id: int, limit: int):
     """
     Re-read already-known Gmail messages for orders still missing price data.
-    This avoids repeatedly listing hundreds of historical Gmail messages.
+
+    Prioritise original Ordered emails because they are most likely to contain
+    Item Subtotal / Order Total.
+
+    EXISTS is used instead of joining order_items so we don't create duplicate
+    OrderEvent rows and therefore don't need SELECT DISTINCT.
     """
     if limit <= 0:
         return []
 
+    has_no_items = ~exists(
+        select(OrderItem.id).where(
+            OrderItem.order_id == Order.id
+        )
+    )
+
+    has_item_missing_price = exists(
+        select(OrderItem.id).where(
+            OrderItem.order_id == Order.id,
+            OrderItem.item_price.is_(None),
+        )
+    )
+
     stmt = (
         select(OrderEvent.gmail_message_id)
         .join(Order, OrderEvent.order_id == Order.id)
-        .outerjoin(OrderItem, OrderItem.order_id == Order.id)
         .where(
             Order.account_id == account_id,
             or_(
                 Order.order_total.is_(None),
-                OrderItem.id.is_(None),
-                OrderItem.item_price.is_(None),
+                has_no_items,
+                has_item_missing_price,
             ),
         )
         .order_by(
@@ -156,11 +173,10 @@ def _backfill_message_ids(db, account_id: int, limit: int):
             OrderEvent.event_time.desc().nullslast(),
             OrderEvent.id.desc(),
         )
-        .distinct()
         .limit(limit)
     )
-    return list(db.scalars(stmt).all())
 
+    return list(db.scalars(stmt).all())
 
 def sync_orders(max_results=None):
     processed = skipped = enriched = price_enriched = 0
