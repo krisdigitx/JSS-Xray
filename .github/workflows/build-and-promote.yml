@@ -1,0 +1,106 @@
+name: Build and promote JSS XRay
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "deploy/helm/jss-xray/values-home-lab.yaml"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jss-xray-main
+  cancel-in-progress: false
+
+env:
+  BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jss-xray-backend
+  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/jss-xray-frontend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: echo "image_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.image_tag }}
+            ${{ env.BACKEND_IMAGE }}:latest
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.image_tag }}
+            ${{ env.FRONTEND_IMAGE }}:latest
+
+  promote:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update Helm image tags
+        run: |
+          python scripts/update_image_tags.py \
+            --file deploy/helm/jss-xray/values-home-lab.yaml \
+            --tag "${{ needs.build.outputs.image_tag }}"
+
+      - name: Commit promotion for ArgoCD
+        run: |
+          if git diff --quiet -- deploy/helm/jss-xray/values-home-lab.yaml; then
+            echo "No manifest change required."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/helm/jss-xray/values-home-lab.yaml
+          git commit -m "chore: promote JSS XRay ${{ needs.build.outputs.image_tag }} [skip ci]"
+          git push origin HEAD:main
