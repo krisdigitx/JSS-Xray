@@ -14,15 +14,30 @@ def _decode(data: str) -> str:
 
 
 def _body(payload: dict) -> str:
-    if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
-        return _decode(payload["body"]["data"])
-    for part in payload.get("parts", []):
+    """
+    Return all useful textual MIME parts.
+
+    Amazon order emails often put the correctly formatted price in text/html
+    (for example £8<sup>49</sup>) while text/plain may omit or mangle it.
+    The old implementation returned the first text/plain part and therefore
+    never allowed the parser to inspect the HTML part.
+    """
+    parts = []
+
+    mime_type = (payload.get("mimeType") or "").lower()
+    data = payload.get("body", {}).get("data")
+    if data and mime_type in {"text/plain", "text/html"}:
+        parts.append(_decode(data))
+
+    for part in payload.get("parts", []) or []:
         text = _body(part)
         if text:
-            return text
-    if payload.get("body", {}).get("data"):
-        return _decode(payload["body"]["data"])
-    return ""
+            parts.append(text)
+
+    if not parts and data:
+        parts.append(_decode(data))
+
+    return "\n\n".join(dict.fromkeys(p for p in parts if p))
 
 
 def _headers(payload: dict) -> dict:
@@ -136,7 +151,11 @@ def _backfill_message_ids(db, account_id: int, limit: int):
                 OrderItem.item_price.is_(None),
             ),
         )
-        .order_by(OrderEvent.event_time.desc().nullslast(), OrderEvent.id.desc())
+        .order_by(
+            (OrderEvent.event_type == "ordered").desc(),
+            OrderEvent.event_time.desc().nullslast(),
+            OrderEvent.id.desc(),
+        )
         .distinct()
         .limit(limit)
     )
@@ -144,7 +163,7 @@ def _backfill_message_ids(db, account_id: int, limit: int):
 
 
 def sync_orders(max_results=None):
-    processed = skipped = enriched = 0
+    processed = skipped = enriched = price_enriched = 0
     touched_order_ids = set()
 
     with SessionLocal() as db:
@@ -217,6 +236,8 @@ def sync_orders(max_results=None):
             )
 
             if parsed.total is not None:
+                if order.order_total != parsed.total:
+                    price_enriched += 1
                 order.order_total = parsed.total
 
             date_value = headers.get("date")
@@ -268,6 +289,7 @@ def sync_orders(max_results=None):
         "recent_candidates": len(recent_ids),
         "backfill_candidates": len(backfill_ids),
         "messages_checked": len(message_ids),
+        "price_enriched": price_enriched,
     }
 
 
