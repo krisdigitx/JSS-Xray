@@ -36,3 +36,36 @@ def test_product_falls_back_to_subject():
     assert parsed is not None
     assert parsed.product_name == "Ofuca USB C Charger Cable"
     assert parsed.event_type == "ordered"
+
+
+def test_order_total_colon_format():
+    body = """
+    Order # 026-8642981-5011532
+    Item Subtotal: £19.99
+    Order Total: £19.99
+    """
+    p = parse_amazon_email("Ordered: ‘FineLuck 1080P WiFi Video Camera’", body)
+    assert p is not None
+    assert str(p.total) == "19.99"
+    assert str(p.item_price) == "19.99"
+
+
+def test_html_order_total_format():
+    body = """
+    <div>Order ID: 205-4101719-1813918</div>
+    <div>Item Subtotal:&nbsp;£8.50</div>
+    <div>Grand Total: £8.50</div>
+    """
+    p = parse_amazon_email("Ordered: Catsan Hygiene Plus Cat Litter", body)
+    assert p is not None
+    assert str(p.total) == "8.50"
+    assert str(p.item_price) == "8.50"
+
+
+def test_delivery_dates_are_returned():
+    body = """
+    Order # 203-1677420-3774750
+    Estimated delivery: 3 September 2026
+    """
+    p = parse_amazon_email("Ordered: Example", body)
+    assert p.estimated_delivery_text == "3 September 2026"

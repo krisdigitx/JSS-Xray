@@ -34,7 +34,7 @@ def _headers(payload: dict) -> dict:
 def _parse_date_text(value: str | None):
     if not value:
         return None
-    for fmt in ("%d %B %Y", "%B %d, %Y"):
+    for fmt in ("%d %B %Y", "%B %d, %Y", "%B %d %Y", "%d %b %Y", "%b %d, %Y", "%b %d %Y"):
         try:
             dt = datetime.strptime(value, fmt)
             return dt.replace(tzinfo=timezone.utc)
@@ -43,7 +43,8 @@ def _parse_date_text(value: str | None):
     return None
 
 
-def _add_item_if_missing(db, order: Order, parsed) -> bool:
+def _upsert_item(db, order: Order, parsed) -> bool:
+    """Create or enrich an existing item from a re-parsed historical email."""
     if not parsed.product_name:
         return False
 
@@ -54,20 +55,36 @@ def _add_item_if_missing(db, order: Order, parsed) -> bool:
             OrderItem.product_name == parsed.product_name,
         )
     )
-    if existing:
-        return False
 
-    db.add(OrderItem(
-        order_id=order.id,
-        product_name=parsed.product_name,
-        asin=parsed.asin,
-        seller=parsed.seller,
-        condition=parsed.condition,
-        quantity=parsed.quantity,
-        item_price=parsed.item_price,
-        product_url=parsed.product_url,
-    ))
-    return True
+    if not existing:
+        db.add(OrderItem(
+            order_id=order.id,
+            product_name=parsed.product_name,
+            asin=parsed.asin,
+            seller=parsed.seller,
+            condition=parsed.condition,
+            quantity=parsed.quantity,
+            item_price=parsed.item_price,
+            product_url=parsed.product_url,
+        ))
+        return True
+
+    changed = False
+    for attr, value in [
+        ("item_price", parsed.item_price),
+        ("seller", parsed.seller),
+        ("condition", parsed.condition),
+        ("product_url", parsed.product_url),
+    ]:
+        if value is not None and getattr(existing, attr) != value:
+            setattr(existing, attr, value)
+            changed = True
+
+    if parsed.quantity and existing.quantity != parsed.quantity:
+        existing.quantity = parsed.quantity
+        changed = True
+
+    return changed
 
 
 def _refresh_order_status(db, order: Order) -> None:
@@ -150,7 +167,7 @@ def sync_orders(max_results=500):
                 if order.order_date is None or event_time < order.order_date:
                     order.order_date = event_time
 
-            if _add_item_if_missing(db, order, parsed):
+            if _upsert_item(db, order, parsed):
                 enriched += 1
 
             if existing_event:
