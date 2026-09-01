@@ -35,14 +35,20 @@ postgresql:
 gmailSync:
   enabled: true
   schedule: "*/30 * * * *"
+  maxNewMessages: 50
+  backfillMessages: 50
+  lookbackHours: 24
 
 amazonAccounts:
   - slug: tauri-royale
     name: Tauri Royale
     secretName: jss-xray-secrets
+    schedule: "0,30 * * * *"
   - slug: polaris-zone
     name: Polaris Zone
     secretName: jss-xray-polaris-zone
+    schedule: "10,40 * * * *"
   - slug: jss-traders
     name: JSS Traders
     secretName: jss-xray-jss-traders
+    schedule: "20,50 * * * *"

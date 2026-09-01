@@ -9,6 +9,9 @@ class Settings(BaseSettings):
 
     account_slug: str = "tauri-royale"
     account_name: str = "Tauri Royale"
+    gmail_max_new_messages: int = 50
+    gmail_backfill_messages: int = 50
+    gmail_lookback_hours: int = 24
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

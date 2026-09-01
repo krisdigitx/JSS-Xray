@@ -1,7 +1,7 @@
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from .config import settings
 from .db import SessionLocal
 from .gmail import list_message_ids, read_message
@@ -107,7 +107,44 @@ def _get_account(db) -> AmazonAccount:
     return account
 
 
-def sync_orders(max_results=500):
+def _latest_event_time(db, account_id: int):
+    return db.scalar(
+        select(OrderEvent.event_time)
+        .join(Order, OrderEvent.order_id == Order.id)
+        .where(Order.account_id == account_id, OrderEvent.event_time.is_not(None))
+        .order_by(OrderEvent.event_time.desc())
+        .limit(1)
+    )
+
+
+def _backfill_message_ids(db, account_id: int, limit: int):
+    """
+    Re-read already-known Gmail messages for orders still missing price data.
+    This avoids repeatedly listing hundreds of historical Gmail messages.
+    """
+    if limit <= 0:
+        return []
+
+    stmt = (
+        select(OrderEvent.gmail_message_id)
+        .join(Order, OrderEvent.order_id == Order.id)
+        .outerjoin(OrderItem, OrderItem.order_id == Order.id)
+        .where(
+            Order.account_id == account_id,
+            or_(
+                Order.order_total.is_(None),
+                OrderItem.id.is_(None),
+                OrderItem.item_price.is_(None),
+            ),
+        )
+        .order_by(OrderEvent.event_time.desc().nullslast(), OrderEvent.id.desc())
+        .distinct()
+        .limit(limit)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def sync_orders(max_results=None):
     ensure_schema()
     processed = skipped = enriched = 0
     touched_order_ids = set()
@@ -115,7 +152,41 @@ def sync_orders(max_results=500):
     with SessionLocal() as db:
         account = _get_account(db)
 
-        for message_id in list_message_ids(max_results=max_results):
+        latest = _latest_event_time(db, account.id)
+        if latest is not None:
+            if latest.tzinfo is None:
+                latest = latest.replace(tzinfo=timezone.utc)
+            recent_after = latest - timedelta(hours=settings.gmail_lookback_hours)
+        else:
+            recent_after = None
+
+        new_limit = max_results or settings.gmail_max_new_messages
+        recent_ids = list_message_ids(
+            max_results=min(new_limit, settings.gmail_max_new_messages),
+            after=recent_after,
+        )
+
+        backfill_ids = _backfill_message_ids(
+            db,
+            account.id,
+            settings.gmail_backfill_messages,
+        )
+
+        # Preserve order, remove duplicates. Typical maximum = 100 reads/run.
+        message_ids = list(dict.fromkeys(recent_ids + backfill_ids))
+
+        print(
+            {
+                "account": settings.account_slug,
+                "recent_candidates": len(recent_ids),
+                "backfill_candidates": len(backfill_ids),
+                "unique_messages": len(message_ids),
+                "after": recent_after.isoformat() if recent_after else None,
+            },
+            flush=True,
+        )
+
+        for message_id in message_ids:
             msg = read_message(message_id)
             headers = _headers(msg["payload"])
             subject = headers.get("subject", "")
@@ -196,6 +267,9 @@ def sync_orders(max_results=500):
         "processed": processed,
         "enriched": enriched,
         "skipped": skipped,
+        "recent_candidates": len(recent_ids),
+        "backfill_candidates": len(backfill_ids),
+        "messages_checked": len(message_ids),
     }
 
 

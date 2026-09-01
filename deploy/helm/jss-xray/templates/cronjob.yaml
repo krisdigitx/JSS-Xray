@@ -6,7 +6,7 @@ kind: CronJob
 metadata:
   name: jss-xray-gmail-sync-{{ .slug }}
 spec:
-  schedule: {{ $.Values.gmailSync.schedule | quote }}
+  schedule: {{ default $.Values.gmailSync.schedule .schedule | quote }}
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
@@ -30,6 +30,12 @@ spec:
                   value: {{ .slug | quote }}
                 - name: ACCOUNT_NAME
                   value: {{ .name | quote }}
+                - name: GMAIL_MAX_NEW_MESSAGES
+                  value: {{ $.Values.gmailSync.maxNewMessages | quote }}
+                - name: GMAIL_BACKFILL_MESSAGES
+                  value: {{ $.Values.gmailSync.backfillMessages | quote }}
+                - name: GMAIL_LOOKBACK_HOURS
+                  value: {{ $.Values.gmailSync.lookbackHours | quote }}
                 - name: GMAIL_CLIENT_ID
                   valueFrom:
                     secretKeyRef:
