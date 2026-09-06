@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -39,6 +39,7 @@ class Order(Base):
     account: Mapped["AmazonAccount"] = relationship(back_populates="orders")
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     events: Mapped[list["OrderEvent"]] = relationship(back_populates="order", cascade="all, delete-orphan")
+    tiktok_orders: Mapped[list["TikTokOrder"]] = relationship(back_populates="amazon_order")
 
 
 class OrderItem(Base):
@@ -72,3 +73,54 @@ class OrderEvent(Base):
     email_subject: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     order: Mapped["Order"] = relationship(back_populates="events")
+
+
+class TikTokShop(Base):
+    __tablename__ = "tiktok_shops"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    shop_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    shop_cipher: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refresh_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_sync_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    orders: Mapped[list["TikTokOrder"]] = relationship(back_populates="shop")
+
+
+class TikTokOrder(Base):
+    __tablename__ = "tiktok_orders"
+    __table_args__ = (UniqueConstraint("shop_id", "tiktok_order_id", name="uq_tiktok_shop_order"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("tiktok_shops.id"), index=True)
+    tiktok_order_id: Mapped[str] = mapped_column(String(64), index=True)
+    amazon_order_id_ref: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    amazon_order_db_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(64), index=True)
+    create_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    update_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="GBP")
+    customer_paid_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    estimated_earnings: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    settled_earnings: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    refund_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    cancellation_initiator: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    seller_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    product_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    raw_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    shop: Mapped["TikTokShop"] = relationship(back_populates="orders")
+    amazon_order: Mapped["Order | None"] = relationship(back_populates="tiktok_orders")

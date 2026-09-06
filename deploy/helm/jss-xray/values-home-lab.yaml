@@ -67,3 +67,26 @@ amazonAccounts:
     name: JSS Traders
     secretName: jss-xray-jss-traders
     schedule: "20,50 * * * *"
+
+
+tiktokSync:
+  enabled: true
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  schedule: "*/15 * * * *"
+  lookbackHours: 48
+
+tiktokShops:
+  - slug: polaris-zone
+    name: Polaris Zone
+    enabled: true
+    secretName: jss-xray-tiktok-polaris-zone
+    schedule: "*/15 * * * *"
+  - slug: tauri-royale
+    name: Tauri Royale
+    enabled: false
+    secretName: jss-xray-tiktok-tauri-royale
+  - slug: jss-traders
+    name: JSS Traders
+    enabled: false
+    secretName: jss-xray-tiktok-jss-traders

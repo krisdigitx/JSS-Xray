@@ -13,6 +13,16 @@ class Settings(BaseSettings):
     gmail_backfill_messages: int = 50
     gmail_lookback_hours: int = 24
 
+    tiktok_app_key: str = ""
+    tiktok_app_secret: str = ""
+    tiktok_access_token: str = ""
+    tiktok_refresh_token: str = ""
+    tiktok_shop_cipher: str = ""
+    tiktok_shop_slug: str = "polaris-zone"
+    tiktok_shop_name: str = "Polaris Zone"
+    tiktok_lookback_hours: int = 48
+    tiktok_oauth_state: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

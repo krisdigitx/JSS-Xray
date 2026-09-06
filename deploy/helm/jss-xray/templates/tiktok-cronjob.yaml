@@ -1,0 +1,52 @@
+{{- if .Values.tiktokSync.enabled }}
+{{- range .Values.tiktokShops }}
+{{- if .enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jss-xray-tiktok-sync-{{ .slug }}
+spec:
+  successfulJobsHistoryLimit: {{ $.Values.tiktokSync.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $.Values.tiktokSync.failedJobsHistoryLimit }}
+  schedule: {{ default $.Values.tiktokSync.schedule .schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: "{{ $.Values.backend.image.repository }}:{{ $.Values.backend.image.tag }}"
+              imagePullPolicy: {{ $.Values.backend.image.pullPolicy }}
+              command: ["python", "-m", "app.tiktok_sync"]
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $.Values.existingSecret }}
+                      key: POSTGRES_PASSWORD
+                - name: DATABASE_URL
+                  value: "postgresql+psycopg://{{ $.Values.postgresql.username }}:$(POSTGRES_PASSWORD)@jss-xray-postgres:5432/{{ $.Values.postgresql.database }}"
+                - name: TIKTOK_SHOP_SLUG
+                  value: {{ .slug | quote }}
+                - name: TIKTOK_SHOP_NAME
+                  value: {{ .name | quote }}
+                - name: TIKTOK_LOOKBACK_HOURS
+                  value: {{ $.Values.tiktokSync.lookbackHours | quote }}
+                - name: TIKTOK_APP_KEY
+                  valueFrom: {secretKeyRef: {name: {{ .secretName }}, key: TIKTOK_APP_KEY}}
+                - name: TIKTOK_APP_SECRET
+                  valueFrom: {secretKeyRef: {name: {{ .secretName }}, key: TIKTOK_APP_SECRET}}
+                - name: TIKTOK_ACCESS_TOKEN
+                  valueFrom: {secretKeyRef: {name: {{ .secretName }}, key: TIKTOK_ACCESS_TOKEN, optional: true}}
+                - name: TIKTOK_REFRESH_TOKEN
+                  valueFrom: {secretKeyRef: {name: {{ .secretName }}, key: TIKTOK_REFRESH_TOKEN, optional: true}}
+                - name: TIKTOK_SHOP_CIPHER
+                  valueFrom: {secretKeyRef: {name: {{ .secretName }}, key: TIKTOK_SHOP_CIPHER, optional: true}}
+                - name: TIKTOK_OAUTH_STATE
+                  valueFrom: {secretKeyRef: {name: {{ .secretName }}, key: TIKTOK_OAUTH_STATE, optional: true}}
+{{- end }}
+{{- end }}
+{{- end }}

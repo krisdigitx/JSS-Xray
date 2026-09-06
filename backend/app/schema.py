@@ -1,4 +1,5 @@
 from sqlalchemy import inspect, text
+from . import models  # noqa: F401 - register ORM tables with Base.metadata
 from .db import Base, engine
 
 ACCOUNTS = [
@@ -7,7 +8,7 @@ ACCOUNTS = [
     ("jss-traders", "JSS Traders"),
 ]
 
-MIGRATION_VERSION = 1
+MIGRATION_VERSION = 2
 ADVISORY_LOCK_ID = 746737971  # Stable application-specific PostgreSQL advisory lock.
 
 
