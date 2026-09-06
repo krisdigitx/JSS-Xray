@@ -24,6 +24,17 @@ app.add_middleware(
 )
 
 
+# TikTok fulfilment status groups used by the operational dashboard.
+# AWAITING_COLLECTION is included in awaiting shipment because the parcel has
+# not yet entered the carrier network. COMPLETED is counted as delivered since
+# it represents a successfully fulfilled order after delivery.
+AWAITING_SHIPMENT_STATUSES = {
+    "AWAITING_SHIPMENT", "AWAITING_COLLECTION", "TO_SHIP", "READY_TO_SHIP"
+}
+DELIVERED_STATUSES = {"DELIVERED", "COMPLETED"}
+CANCELLED_STATUSES = {"CANCELLED", "CANCELED"}
+
+
 def _f(value):
     return float(value) if value is not None else None
 
@@ -179,7 +190,9 @@ def dashboard(
             func.coalesce(func.sum(cost_expr), 0).label("amazon_cost"),
             func.coalesce(func.sum(case((TikTokOrder.amazon_order_db_id.is_not(None), earning_expr - cost_expr), else_=0)), 0).label("profit"),
             func.coalesce(func.sum(TikTokOrder.refund_amount), 0).label("refunds"),
-            func.sum(case((TikTokOrder.status.in_(["CANCELLED", "CANCELED"]), 1), else_=0)).label("cancelled"),
+            func.sum(case((TikTokOrder.status.in_(AWAITING_SHIPMENT_STATUSES), 1), else_=0)).label("awaiting_shipment"),
+            func.sum(case((TikTokOrder.status.in_(DELIVERED_STATUSES), 1), else_=0)).label("delivered"),
+            func.sum(case((TikTokOrder.status.in_(CANCELLED_STATUSES), 1), else_=0)).label("cancelled"),
         )
         .select_from(TikTokShop)
         .outerjoin(TikTokOrder, TikTokOrder.shop_id == TikTokShop.id)
@@ -200,6 +213,8 @@ def dashboard(
         "amazon_cost": float(r.amazon_cost or 0),
         "profit": float(r.profit or 0),
         "refunds": float(r.refunds or 0),
+        "awaiting_shipment": int(r.awaiting_shipment or 0),
+        "delivered": int(r.delivered or 0),
         "cancelled": int(r.cancelled or 0),
     } for r in db.execute(tt_totals_stmt)]
 
@@ -214,6 +229,9 @@ def dashboard(
             func.coalesce(func.sum(cost_expr), 0).label("amazon_cost"),
             func.coalesce(func.sum(case((TikTokOrder.amazon_order_db_id.is_not(None), earning_expr - cost_expr), else_=0)), 0).label("profit"),
             func.coalesce(func.sum(TikTokOrder.refund_amount), 0).label("refunds"),
+            func.sum(case((TikTokOrder.status.in_(AWAITING_SHIPMENT_STATUSES), 1), else_=0)).label("awaiting_shipment"),
+            func.sum(case((TikTokOrder.status.in_(DELIVERED_STATUSES), 1), else_=0)).label("delivered"),
+            func.sum(case((TikTokOrder.status.in_(CANCELLED_STATUSES), 1), else_=0)).label("cancelled"),
         )
         .select_from(TikTokOrder)
         .join(TikTokShop)
@@ -232,6 +250,9 @@ def dashboard(
         "amazon_cost": float(r.amazon_cost or 0),
         "profit": float(r.profit or 0),
         "refunds": float(r.refunds or 0),
+        "awaiting_shipment": int(r.awaiting_shipment or 0),
+        "delivered": int(r.delivered or 0),
+        "cancelled": int(r.cancelled or 0),
     } for r in db.execute(tt_monthly_stmt)]
 
     sync_status = [{
