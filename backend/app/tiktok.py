@@ -83,7 +83,16 @@ class TikTokClient:
         headers = {"x-tts-access-token": self.access_token, "content-type": "application/json"}
         with httpx.Client(timeout=30.0) as client:
             response = client.request(method, f"{self.api_base}{path}", params=query, json=body, headers=headers)
-        response.raise_for_status()
+        if response.is_error:
+            # Preserve TikTok's JSON error body in logs. This is especially
+            # useful for Finance API validation failures (HTTP 400).
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text[:1000]
+            raise TikTokAPIError(
+                f"TikTok HTTP {response.status_code} {method.upper()} {path}: {detail}"
+            )
         payload = response.json()
         if payload.get("code") not in (0, "0", None):
             raise TikTokAPIError(f"TikTok API {payload.get('code')}: {payload.get('message')}")
@@ -119,11 +128,15 @@ class TikTokClient:
         by_order: dict[str, dict] = {}
         token = None
         while True:
+            # TikTok Finance API v202507 requires sort_field. Omitting it
+            # returns HTTP 400 even when the request is correctly signed.
             params = {
                 "page_size": min(page_size, 100),
                 "page_token": token,
                 "search_time_ge": search_time_ge,
                 "search_time_lt": search_time_lt,
+                "sort_field": "order_create_time",
+                "sort_order": "ASC",
             }
             data = self._request("GET", path, params=params)
             for tx in data.get("transactions") or data.get("orders") or []:

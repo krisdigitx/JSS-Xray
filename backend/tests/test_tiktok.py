@@ -1,4 +1,4 @@
-from app.tiktok import money, parse_amazon_order_id, sign_request
+from app.tiktok import TikTokClient, money, parse_amazon_order_id, sign_request
 
 
 def test_parse_amazon_order_id_from_note():
@@ -16,3 +16,21 @@ def test_money_accepts_tiktok_money_objects():
 def test_signature_is_stable():
     params = {"timestamp": 123, "app_key": "abc", "shop_cipher": "cipher"}
     assert sign_request("/authorization/202309/shops", params, "secret") == sign_request("/authorization/202309/shops", dict(reversed(list(params.items()))), "secret")
+
+
+def test_unsettled_transactions_includes_required_sort_field(monkeypatch):
+    client = TikTokClient("app", "secret", "token", "cipher")
+    captured = {}
+
+    def fake_request(method, path, *, params=None, body=None):
+        captured.update({"method": method, "path": path, "params": params, "body": body})
+        return {"transactions": [], "next_page_token": None}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    client.unsettled_transactions(search_time_ge=100, search_time_lt=200)
+
+    assert captured["path"] == "/finance/202507/orders/unsettled"
+    assert captured["params"]["sort_field"] == "order_create_time"
+    assert captured["params"]["sort_order"] == "ASC"
+    assert captured["params"]["search_time_ge"] == 100
+    assert captured["params"]["search_time_lt"] == 200
