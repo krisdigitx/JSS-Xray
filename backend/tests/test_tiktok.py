@@ -34,3 +34,24 @@ def test_unsettled_transactions_includes_required_sort_field(monkeypatch):
     assert captured["params"]["sort_order"] == "ASC"
     assert captured["params"]["search_time_ge"] == 100
     assert captured["params"]["search_time_lt"] == 200
+
+
+def test_finance_amount_prefers_nonzero_estimate():
+    from app.tiktok_sync import _finance_amount
+
+    estimated, settled, refund = _finance_amount({
+        "est_settlement_amount": "0.00",
+        "estimated_settlement_amount": "12.38",
+        "settlement_amount": "0.00",
+    })
+    assert str(estimated) == "12.38"
+    assert str(settled) == "0.00"
+    assert refund is None
+
+
+def test_finance_amount_does_not_use_settlement_as_estimate():
+    from app.tiktok_sync import _finance_amount
+
+    estimated, settled, _ = _finance_amount({"settlement_amount": "12.38"})
+    assert estimated is None
+    assert str(settled) == "12.38"

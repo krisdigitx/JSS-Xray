@@ -57,20 +57,55 @@ def _customer_paid(order: dict):
     return money(payment.get("total_amount") or payment.get("original_total_product_price"))
 
 
+def _first_money(tx: dict, *keys: str, prefer_nonzero: bool = False):
+    """Return the first usable TikTok money value from a set of field names.
+
+    Finance responses have changed field naming across endpoint versions and may
+    include placeholder ``0.00`` values alongside a real estimate.  When
+    ``prefer_nonzero`` is true, keep looking past zero values and only fall
+    back to zero if no non-zero amount is present.
+    """
+    zero = None
+    for key in keys:
+        if key not in tx:
+            continue
+        value = money(tx.get(key))
+        if value is None:
+            continue
+        if prefer_nonzero and value == 0:
+            zero = value
+            continue
+        return value
+    return zero
+
+
 def _finance_amount(tx: dict | None):
     if not tx:
         return None, None, None
-    estimated = money(
-        tx.get("est_settlement_amount")
-        or tx.get("estimated_settlement_amount")
-        or tx.get("settlement_amount")
+
+    # Unsettled Finance API values are estimates. TikTok has used both
+    # est_* and estimated_* names across Finance API responses, so accept both
+    # and prefer a meaningful non-zero estimate over a placeholder 0.00.
+    estimated = _first_money(
+        tx,
+        "est_settlement_amount",
+        "estimated_settlement_amount",
+        "est_revenue_amount",
+        "estimated_revenue_amount",
+        prefer_nonzero=True,
     )
-    settled = money(tx.get("settlement_amount"))
-    refund = money(
-        tx.get("refund_amount")
-        or tx.get("refund_subtotal_before_discount")
-        or tx.get("refund_sub_total")
-        or tx.get("refund_actual_amount")
+
+    # settlement_amount is a final/settled figure and must not be used as an
+    # estimated value when TikTok supplies a separate estimate.
+    settled = _first_money(tx, "settlement_amount", prefer_nonzero=True)
+
+    refund = _first_money(
+        tx,
+        "refund_amount",
+        "refund_subtotal_before_discount",
+        "refund_sub_total",
+        "refund_actual_amount",
+        prefer_nonzero=True,
     )
     return estimated, settled, abs(refund) if refund is not None else None
 
@@ -186,9 +221,17 @@ def sync_tiktok_orders() -> dict:
             row.update_time = epoch_dt(raw.get("update_time") or raw.get("updated_time")) or now
             row.currency = ((raw.get("payment") or {}).get("currency") or (tx or {}).get("currency") or "GBP")[:3]
             row.customer_paid_amount = _customer_paid(raw)
-            row.estimated_earnings = estimated
-            row.settled_earnings = settled
-            row.refund_amount = refund
+
+            # Do not erase a previously captured non-zero estimate with a
+            # placeholder 0.00 from a later Finance response. This commonly
+            # happens as an order moves from unsettled to delivered/settled.
+            # Keep the latest meaningful estimate for estimated-profit display.
+            if estimated is not None and (estimated != 0 or row.estimated_earnings in (None, 0)):
+                row.estimated_earnings = estimated
+            if settled is not None and (settled != 0 or row.settled_earnings in (None, 0)):
+                row.settled_earnings = settled
+            if refund is not None:
+                row.refund_amount = refund
             row.cancellation_initiator = raw.get("cancellation_initiator")
             row.seller_note = note
             row.product_name = product_name

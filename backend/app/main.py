@@ -45,21 +45,34 @@ def _amazon_cost(order: Order | None):
     return _f(order.order_total)
 
 
-def _earnings(row: TikTokOrder):
-    """Return the earnings figure used for *estimated* profitability.
+def _effective_earnings_value(row: TikTokOrder):
+    """Return the best TikTok payout figure for profitability.
 
-    TikTok can expose both estimated and settled earnings.  A settled value of
-    0.00 must not hide a non-zero estimate while an order is still unsettled,
-    so estimated earnings are preferred and settled earnings are only a
-    fallback when no estimate is available.
+    Prefer a non-zero estimate. If TikTok has replaced the estimate with a
+    placeholder 0.00 after settlement, use the non-zero settled amount. A real
+    zero remains zero when neither source contains a non-zero value.
     """
-    value = row.estimated_earnings if row.estimated_earnings is not None else row.settled_earnings
+    estimated = row.estimated_earnings
+    settled = row.settled_earnings
+    if estimated not in (None, 0):
+        return estimated, "estimated"
+    if settled not in (None, 0):
+        return settled, "settled"
+    if estimated is not None:
+        return estimated, "estimated"
+    if settled is not None:
+        return settled, "settled"
+    return None, None
+
+
+def _earnings(row: TikTokOrder):
+    value, _ = _effective_earnings_value(row)
     return _f(value)
 
 
 def _profit(row: TikTokOrder):
-    # Estimated profit = TikTok estimated earnings - actual Amazon purchase cost.
-    earnings = row.estimated_earnings if row.estimated_earnings is not None else row.settled_earnings
+    # Estimated profit = effective TikTok earnings - actual Amazon purchase cost.
+    earnings, _ = _effective_earnings_value(row)
     cost = row.amazon_order.order_total if row.amazon_order else None
     if earnings is None or cost is None:
         return None
@@ -81,6 +94,7 @@ def _tiktok_order_payload(row: TikTokOrder):
         "estimated_earnings": _f(row.estimated_earnings),
         "settled_earnings": _f(row.settled_earnings),
         "display_earnings": _earnings(row),
+        "earnings_source": _effective_earnings_value(row)[1],
         "refund_amount": _f(row.refund_amount),
         "cancellation_initiator": row.cancellation_initiator,
         "seller_note": row.seller_note,
@@ -188,7 +202,16 @@ def dashboard(
 
     # Estimated profitability must prefer TikTok's estimated earnings.  Settled
     # earnings are only a fallback when no estimate exists.
-    earning_expr = func.coalesce(TikTokOrder.estimated_earnings, TikTokOrder.settled_earnings, 0)
+    # A zero estimate can be a TikTok placeholder after settlement; prefer a
+    # non-zero estimate, then settled earnings, then fall back to the literal
+    # zero estimate when both are zero/missing.
+    earning_expr = func.coalesce(
+        func.nullif(TikTokOrder.estimated_earnings, 0),
+        func.nullif(TikTokOrder.settled_earnings, 0),
+        TikTokOrder.estimated_earnings,
+        TikTokOrder.settled_earnings,
+        0,
+    )
     customer_paid_expr = func.coalesce(TikTokOrder.customer_paid_amount, 0)
     cost_expr = func.coalesce(Order.order_total, 0)
     tt_totals_stmt = (

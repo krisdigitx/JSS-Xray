@@ -139,7 +139,7 @@ export default function Home() {
         <div className="order-title"><div><strong>{o.product_name || "TikTok order"}</strong><small>{o.shop.name} · TikTok #{o.tiktok_order_id} · {day(o.create_time)}</small></div><span className={`badge ${o.status?.toLowerCase()}`}>{(o.status||"unknown").replaceAll("_"," ")}</span></div>
         <div className="order-grid">
           <div><small>Customer paid</small><strong>{money(o.customer_paid_amount)}</strong><em>TikTok sale</em></div>
-          <div><small>Estimated earnings</small><strong>{money(o.display_earnings)}</strong><em>{o.estimated_earnings!=null?"Estimated":"Settled fallback"}</em></div>
+          <div><small>Estimated earnings</small><strong>{money(o.display_earnings)}</strong><em>{o.earnings_source==="settled"?"Settled":"Estimated"}</em></div>
           <div><small>Amazon purchase cost</small><strong>{money(o.amazon_order?.purchase_cost)}</strong></div>
           <div><small>Estimated profit</small><strong className={Number(o.estimated_profit)<0?"bad":"good"}>{money(o.estimated_profit)}</strong></div>
           <div><small>Amazon match</small>{o.matched?<><strong>{o.amazon_order.amazon_order_id}</strong><em>{o.amazon_order.account.name}</em></>:<><strong className="bad">Needs attention</strong><em>{o.amazon_order_id_ref ? `Reference: ${o.amazon_order_id_ref}` : "No Amazon order ID found in note"}</em></>}</div>
