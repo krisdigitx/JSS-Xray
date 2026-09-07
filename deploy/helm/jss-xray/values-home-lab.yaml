@@ -2,7 +2,7 @@ backend:
   replicaCount: 1
   image:
     repository: krisdigitx/jss-xray-backend
-    tag: sha-aca0e209a8db
+    tag: sha-97cd1c97ed1e
     pullPolicy: Always
   resources:
     requests:
@@ -16,7 +16,7 @@ frontend:
   replicaCount: 1
   image:
     repository: krisdigitx/jss-xray-frontend
-    tag: sha-aca0e209a8db
+    tag: sha-97cd1c97ed1e
     pullPolicy: Always
   service:
     type: LoadBalancer
