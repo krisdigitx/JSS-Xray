@@ -249,9 +249,13 @@ def sync_tiktok_orders() -> dict:
             # placeholder 0.00 from a later Finance response. This commonly
             # happens as an order moves from unsettled to delivered/settled.
             # Keep the latest meaningful estimate for estimated-profit display.
-            if estimated is not None and (estimated != 0 or row.estimated_earnings in (None, 0)):
+            # Do not persist temporary 0.00 finance placeholders for active or
+            # delivered orders. A zero payout is only considered authoritative
+            # for cancelled orders.
+            is_cancelled = status.upper() in {"CANCELLED", "CANCELED"}
+            if estimated is not None and (estimated != 0 or is_cancelled):
                 row.estimated_earnings = estimated
-            if settled is not None and (settled != 0 or row.settled_earnings in (None, 0)):
+            if settled is not None and (settled != 0 or is_cancelled):
                 row.settled_earnings = settled
             if refund is not None:
                 row.refund_amount = refund

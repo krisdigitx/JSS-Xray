@@ -48,9 +48,11 @@ def _amazon_cost(order: Order | None):
 def _effective_earnings_value(row: TikTokOrder):
     """Return the best TikTok payout figure for profitability.
 
-    Prefer a non-zero estimate. If TikTok has replaced the estimate with a
-    placeholder 0.00 after settlement, use the non-zero settled amount. A real
-    zero remains zero when neither source contains a non-zero value.
+    TikTok can expose temporary 0.00 finance placeholders while an order moves
+    between unsettled and settled datasets. For a live/delivered order, a zero
+    is treated as not reconciled yet rather than as a real payout; otherwise
+    the dashboard incorrectly reports -Amazon-cost as profit. Cancelled orders
+    are the exception where a genuine zero payout is valid.
     """
     estimated = row.estimated_earnings
     settled = row.settled_earnings
@@ -58,10 +60,11 @@ def _effective_earnings_value(row: TikTokOrder):
         return estimated, "estimated"
     if settled not in (None, 0):
         return settled, "settled"
-    if estimated is not None:
-        return estimated, "estimated"
-    if settled is not None:
-        return settled, "settled"
+    if (row.status or "").upper() in CANCELLED_STATUSES:
+        if settled is not None:
+            return settled, "settled"
+        if estimated is not None:
+            return estimated, "estimated"
     return None, None
 
 
@@ -205,12 +208,18 @@ def dashboard(
     # A zero estimate can be a TikTok placeholder after settlement; prefer a
     # non-zero estimate, then settled earnings, then fall back to the literal
     # zero estimate when both are zero/missing.
-    earning_expr = func.coalesce(
-        func.nullif(TikTokOrder.estimated_earnings, 0),
-        func.nullif(TikTokOrder.settled_earnings, 0),
-        TikTokOrder.estimated_earnings,
-        TikTokOrder.settled_earnings,
-        0,
+    earning_expr = case(
+        (TikTokOrder.status.in_(CANCELLED_STATUSES), func.coalesce(
+            func.nullif(TikTokOrder.estimated_earnings, 0),
+            func.nullif(TikTokOrder.settled_earnings, 0),
+            TikTokOrder.estimated_earnings,
+            TikTokOrder.settled_earnings,
+            0,
+        )),
+        else_=func.coalesce(
+            func.nullif(TikTokOrder.estimated_earnings, 0),
+            func.nullif(TikTokOrder.settled_earnings, 0),
+        ),
     )
     customer_paid_expr = func.coalesce(TikTokOrder.customer_paid_amount, 0)
     cost_expr = func.coalesce(Order.order_total, 0)
@@ -493,3 +502,8 @@ def sync():
 @app.post("/api/tiktok/sync")
 def tiktok_sync():
     return sync_tiktok_orders()
+
+
+@app.get("/api/version")
+def api_version():
+    return {"version": "v8-finance-reconciliation", "finance_sort_field": "order_create_time"}
