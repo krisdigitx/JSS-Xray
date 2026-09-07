@@ -179,10 +179,33 @@ def sync_tiktok_orders() -> dict:
         start = now - timedelta(hours=settings.tiktok_lookback_hours)
         orders = client.search_orders(update_time_ge=int(start.timestamp()), update_time_lt=int(now.timestamp()))
 
+        # Finance transactions are keyed by their own creation/settlement time, not
+        # the order update time. An older order can be updated today (for example
+        # DELIVERED) while its estimated settlement transaction was created days
+        # earlier. Using the short order lookback here caused valid TikTok earnings
+        # to be missed and left stored placeholder values such as 0.00.
+        #
+        # Cover the creation time of every order returned in this sync. This keeps
+        # the normal order polling window small while ensuring Finance can still
+        # reconcile those orders. TikTok's v202507 unsettled endpoint supports data
+        # from 2025-01-01 onward.
+        order_created_times = [
+            epoch_dt(o.get("create_time") or o.get("created_time"))
+            for o in orders
+        ]
+        order_created_times = [dt for dt in order_created_times if dt is not None]
+        finance_start = min(order_created_times) - timedelta(days=1) if order_created_times else start
+        finance_floor = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        if finance_start < finance_floor:
+            finance_start = finance_floor
+
         finance = {}
         finance_error = None
         try:
-            finance = client.unsettled_transactions(search_time_ge=int(start.timestamp()), search_time_lt=int(now.timestamp()))
+            finance = client.unsettled_transactions(
+                search_time_ge=int(finance_start.timestamp()),
+                search_time_lt=int(now.timestamp()),
+            )
         except Exception as exc:
             finance_error = str(exc)
 
