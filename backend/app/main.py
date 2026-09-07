@@ -46,11 +46,20 @@ def _amazon_cost(order: Order | None):
 
 
 def _earnings(row: TikTokOrder):
-    return _f(row.settled_earnings if row.settled_earnings is not None else row.estimated_earnings)
+    """Return the earnings figure used for *estimated* profitability.
+
+    TikTok can expose both estimated and settled earnings.  A settled value of
+    0.00 must not hide a non-zero estimate while an order is still unsettled,
+    so estimated earnings are preferred and settled earnings are only a
+    fallback when no estimate is available.
+    """
+    value = row.estimated_earnings if row.estimated_earnings is not None else row.settled_earnings
+    return _f(value)
 
 
 def _profit(row: TikTokOrder):
-    earnings = row.settled_earnings if row.settled_earnings is not None else row.estimated_earnings
+    # Estimated profit = TikTok estimated earnings - actual Amazon purchase cost.
+    earnings = row.estimated_earnings if row.estimated_earnings is not None else row.settled_earnings
     cost = row.amazon_order.order_total if row.amazon_order else None
     if earnings is None or cost is None:
         return None
@@ -177,7 +186,10 @@ def dashboard(
     if shop and shop != "all":
         tt_filters.append(TikTokShop.slug == shop)
 
-    earning_expr = func.coalesce(TikTokOrder.settled_earnings, TikTokOrder.estimated_earnings, 0)
+    # Estimated profitability must prefer TikTok's estimated earnings.  Settled
+    # earnings are only a fallback when no estimate exists.
+    earning_expr = func.coalesce(TikTokOrder.estimated_earnings, TikTokOrder.settled_earnings, 0)
+    customer_paid_expr = func.coalesce(TikTokOrder.customer_paid_amount, 0)
     cost_expr = func.coalesce(Order.order_total, 0)
     tt_totals_stmt = (
         select(
@@ -186,6 +198,7 @@ def dashboard(
             func.count(TikTokOrder.id).label("orders"),
             func.sum(case((TikTokOrder.amazon_order_db_id.is_not(None), 1), else_=0)).label("matched"),
             func.sum(case((and_(TikTokOrder.id.is_not(None), TikTokOrder.amazon_order_db_id.is_(None)), 1), else_=0)).label("unmatched"),
+            func.coalesce(func.sum(customer_paid_expr), 0).label("customer_paid"),
             func.coalesce(func.sum(earning_expr), 0).label("earnings"),
             func.coalesce(func.sum(cost_expr), 0).label("amazon_cost"),
             func.coalesce(func.sum(case((TikTokOrder.amazon_order_db_id.is_not(None), earning_expr - cost_expr), else_=0)), 0).label("profit"),
@@ -209,6 +222,7 @@ def dashboard(
         "orders": int(r.orders or 0),
         "matched": int(r.matched or 0),
         "unmatched": int(r.unmatched or 0),
+        "customer_paid": float(r.customer_paid or 0),
         "earnings": float(r.earnings or 0),
         "amazon_cost": float(r.amazon_cost or 0),
         "profit": float(r.profit or 0),
@@ -225,6 +239,7 @@ def dashboard(
             TikTokShop.name,
             tt_month.label("month"),
             func.count(TikTokOrder.id).label("orders"),
+            func.coalesce(func.sum(customer_paid_expr), 0).label("customer_paid"),
             func.coalesce(func.sum(earning_expr), 0).label("earnings"),
             func.coalesce(func.sum(cost_expr), 0).label("amazon_cost"),
             func.coalesce(func.sum(case((TikTokOrder.amazon_order_db_id.is_not(None), earning_expr - cost_expr), else_=0)), 0).label("profit"),
@@ -246,6 +261,7 @@ def dashboard(
         "shop_name": r.name,
         "month": r.month.date().isoformat() if r.month else None,
         "orders": int(r.orders or 0),
+        "customer_paid": float(r.customer_paid or 0),
         "earnings": float(r.earnings or 0),
         "amazon_cost": float(r.amazon_cost or 0),
         "profit": float(r.profit or 0),

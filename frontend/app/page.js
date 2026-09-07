@@ -64,10 +64,10 @@ export default function Home() {
 
   const aggregate = useMemo(() => (dashboard.tiktok_totals || []).reduce((a,x)=>({
     orders:a.orders+(x.orders||0), matched:a.matched+(x.matched||0), unmatched:a.unmatched+(x.unmatched||0),
-    earnings:a.earnings+Number(x.earnings||0), cost:a.cost+Number(x.amazon_cost||0), profit:a.profit+Number(x.profit||0),
+    customerPaid:a.customerPaid+Number(x.customer_paid||0), earnings:a.earnings+Number(x.earnings||0), cost:a.cost+Number(x.amazon_cost||0), profit:a.profit+Number(x.profit||0),
     refunds:a.refunds+Number(x.refunds||0), awaitingShipment:a.awaitingShipment+(x.awaiting_shipment||0),
     delivered:a.delivered+(x.delivered||0), cancelled:a.cancelled+(x.cancelled||0)
-  }), {orders:0,matched:0,unmatched:0,earnings:0,cost:0,profit:0,refunds:0,awaitingShipment:0,delivered:0,cancelled:0}), [dashboard]);
+  }), {orders:0,matched:0,unmatched:0,customerPaid:0,earnings:0,cost:0,profit:0,refunds:0,awaitingShipment:0,delivered:0,cancelled:0}), [dashboard]);
 
   function submitSearch(e){e.preventDefault();const s=q.trim();setActiveSearch(s);loadOrders(s,1,shop,attentionOnly)}
   function changeShop(e){const s=e.target.value;setShop(s);loadDashboard(s);loadOrders(activeSearch,1,s,attentionOnly)}
@@ -90,7 +90,8 @@ export default function Home() {
     <section className="summary-grid">
       <div className="metric"><small>TikTok orders</small><strong>{aggregate.orders}</strong><span>{aggregate.matched} matched</span></div>
       <div className={`metric ${aggregate.unmatched>0?"warn":""}`}><small>Needs attention</small><strong>{aggregate.unmatched}</strong><span>Unmatched Amazon orders</span></div>
-      <div className="metric"><small>Estimated earnings</small><strong>{money(aggregate.earnings)}</strong><span>TikTok finance</span></div>
+      <div className="metric"><small>Customer paid</small><strong>{money(aggregate.customerPaid)}</strong><span>Total TikTok sales</span></div>
+      <div className="metric"><small>Estimated earnings</small><strong>{money(aggregate.earnings)}</strong><span>After TikTok fees</span></div>
       <div className="metric"><small>Amazon cost</small><strong>{money(aggregate.cost)}</strong></div>
       <div className={`metric ${aggregate.profit<0?"negative":"positive"}`}><small>Estimated profit</small><strong>{money(aggregate.profit)}</strong><span>Earnings − Amazon cost</span></div>
       <div className="metric"><small>Refunds / cancelled</small><strong>{money(aggregate.refunds)}</strong><span>{aggregate.cancelled} cancelled orders</span></div>
@@ -112,7 +113,7 @@ export default function Home() {
         <h3>{s.name}</h3><div><span>Orders</span><b>{s.orders}</b></div><div><span>Unmatched</span><b className={s.unmatched?"bad":""}>{s.unmatched}</b></div>
         <div><span>Awaiting shipment</span><b>{s.awaiting_shipment}</b></div><div><span>Delivered</span><b className="good">{s.delivered}</b></div>
         <div><span>Cancelled</span><b className={s.cancelled?"bad":""}>{s.cancelled}</b></div>
-        <div><span>Earnings</span><b>{money(s.earnings)}</b></div><div><span>Amazon cost</span><b>{money(s.amazon_cost)}</b></div>
+        <div><span>Customer paid</span><b>{money(s.customer_paid)}</b></div><div><span>Estimated earnings</span><b>{money(s.earnings)}</b></div><div><span>Amazon cost</span><b>{money(s.amazon_cost)}</b></div>
         <div><span>Profit</span><b className={Number(s.profit)<0?"bad":"good"}>{money(s.profit)}</b></div><div><span>Refunds</span><b>{money(s.refunds)}</b></div>
       </article>)}</div>
     </section>
@@ -120,9 +121,9 @@ export default function Home() {
     <section className="monthly">
       <h2>Monthly profitability</h2>
       {(dashboard.tiktok_monthly||[]).length===0 ? <p>No TikTok monthly data yet.</p> : <div className="monthly-table">
-        <div className="monthly-row head"><span>Month</span><span>Shop</span><span>Orders</span><span>Awaiting</span><span>Delivered</span><span>Cancelled</span><span>Earnings</span><span>Amazon cost</span><span>Profit</span><span>Refunds</span></div>
+        <div className="monthly-row head"><span>Month</span><span>Shop</span><span>Orders</span><span>Awaiting</span><span>Delivered</span><span>Cancelled</span><span>Customer paid</span><span>Estimated earnings</span><span>Amazon cost</span><span>Profit</span><span>Refunds</span></div>
         {(dashboard.tiktok_monthly||[]).map((m,i)=><div className="monthly-row" key={`${m.shop_slug}-${m.month}-${i}`}>
-          <span>{new Date(`${m.month}T00:00:00`).toLocaleDateString("en-GB",{month:"short",year:"numeric"})}</span><span>{m.shop_name}</span><span>{m.orders}</span><span>{m.awaiting_shipment}</span><span className="good">{m.delivered}</span><span className={m.cancelled?"bad":""}>{m.cancelled}</span><span>{money(m.earnings)}</span><span>{money(m.amazon_cost)}</span><strong className={Number(m.profit)<0?"bad":"good"}>{money(m.profit)}</strong><span>{money(m.refunds)}</span>
+          <span>{new Date(`${m.month}T00:00:00`).toLocaleDateString("en-GB",{month:"short",year:"numeric"})}</span><span>{m.shop_name}</span><span>{m.orders}</span><span>{m.awaiting_shipment}</span><span className="good">{m.delivered}</span><span className={m.cancelled?"bad":""}>{m.cancelled}</span><span>{money(m.customer_paid)}</span><span>{money(m.earnings)}</span><span>{money(m.amazon_cost)}</span><strong className={Number(m.profit)<0?"bad":"good"}>{money(m.profit)}</strong><span>{money(m.refunds)}</span>
         </div>)}
       </div>}
     </section>
@@ -137,7 +138,8 @@ export default function Home() {
       <div className="orders-list">{orders.map(o=><article className={!o.matched?"order attention-order":"order"} key={`${o.shop.slug}-${o.tiktok_order_id}`}>
         <div className="order-title"><div><strong>{o.product_name || "TikTok order"}</strong><small>{o.shop.name} · TikTok #{o.tiktok_order_id} · {day(o.create_time)}</small></div><span className={`badge ${o.status?.toLowerCase()}`}>{(o.status||"unknown").replaceAll("_"," ")}</span></div>
         <div className="order-grid">
-          <div><small>TikTok earnings</small><strong>{money(o.display_earnings)}</strong>{o.settled_earnings!=null?<em>Settled</em>:<em>Estimated</em>}</div>
+          <div><small>Customer paid</small><strong>{money(o.customer_paid_amount)}</strong><em>TikTok sale</em></div>
+          <div><small>Estimated earnings</small><strong>{money(o.display_earnings)}</strong><em>{o.estimated_earnings!=null?"Estimated":"Settled fallback"}</em></div>
           <div><small>Amazon purchase cost</small><strong>{money(o.amazon_order?.purchase_cost)}</strong></div>
           <div><small>Estimated profit</small><strong className={Number(o.estimated_profit)<0?"bad":"good"}>{money(o.estimated_profit)}</strong></div>
           <div><small>Amazon match</small>{o.matched?<><strong>{o.amazon_order.amazon_order_id}</strong><em>{o.amazon_order.account.name}</em></>:<><strong className="bad">Needs attention</strong><em>{o.amazon_order_id_ref ? `Reference: ${o.amazon_order_id_ref}` : "No Amazon order ID found in note"}</em></>}</div>
