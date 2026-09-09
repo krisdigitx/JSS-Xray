@@ -36,3 +36,6 @@ The original Seller SKU remains the authoritative source URL. For `amzn.eu` link
 - `ERROR`: HTTP/network/source error
 
 The existing 6-hour Kubernetes CronJob remains unchanged.
+
+## v11 navigation update
+The Product Price Monitor now lives on its own `/product-monitor` page. The existing orders dashboard remains `/`. Both pages have top navigation. The product page starts with Polaris Zone statistics for active products, mapped/missing Seller SKU sources, Amazon price increases/decreases, source-check problems, and products with scan history. Seller SKU remains the primary Amazon source and all backend monitor logic is unchanged.

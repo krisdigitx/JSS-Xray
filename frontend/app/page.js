@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "";
 const PAGE_SIZE = 25;
@@ -20,66 +21,6 @@ export default function Home() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
 
-  // Product Price Monitor is additive and intentionally separate from the
-  // existing TikTok order/profitability state above.
-  const [productMonitor, setProductMonitor] = useState({total:0,mapped:0,unmapped:0,price_increased:0,source_errors:0,items:[]});
-  const [productBusy, setProductBusy] = useState(false);
-  const [productMessage, setProductMessage] = useState("");
-
-  async function loadShops() {
-    const r = await fetch(`${API}/api/tiktok/shops`, {cache:"no-store"});
-    if (!r.ok) throw new Error(`TikTok shops API failed (${r.status})`);
-    setShops(await r.json());
-  }
-
-  async function loadDashboard(selectedShop=shop) {
-    const r = await fetch(`${API}/api/dashboard?shop=${encodeURIComponent(selectedShop)}`, {cache:"no-store"});
-    if (!r.ok) throw new Error(`Dashboard API failed (${r.status})`);
-    setDashboard(await r.json());
-  }
-
-  async function loadProductMonitor() {
-    const r = await fetch(`${API}/api/product-monitor/products?shop=polaris-zone`, {cache:"no-store"});
-    if (!r.ok) throw new Error(`Product Price Monitor API failed (${r.status})`);
-    const data = await r.json();
-    setProductMonitor(data);
-  }
-
-  async function syncProducts() {
-    setProductBusy(true); setProductMessage("");
-    try {
-      const r = await fetch(`${API}/api/product-monitor/sync-products?shop=polaris-zone`, {method:"POST"});
-      if (!r.ok) throw new Error(await r.text());
-      const result = await r.json();
-      await loadProductMonitor();
-      setProductMessage(`Product catalogue synced: ${result.products || 0} active Polaris Zone products.`);
-    } catch(e) { setProductMessage(`Product sync failed: ${e.message || e}`); }
-    finally { setProductBusy(false); }
-  }
-
-  async function checkProductSource(product) {
-    setProductBusy(true); setProductMessage("");
-    try {
-      const r = await fetch(`${API}/api/product-monitor/products/${product.id}/check`, {method:"POST"});
-      if (!r.ok) throw new Error(await r.text());
-      await loadProductMonitor();
-      setProductMessage(`Amazon price checked for ${product.title}.`);
-    } catch(e) { setProductMessage(`Price check failed: ${e.message || e}`); }
-    finally { setProductBusy(false); }
-  }
-
-  async function checkAllProductSources() {
-    setProductBusy(true); setProductMessage("");
-    try {
-      const r = await fetch(`${API}/api/product-monitor/check?shop=polaris-zone`, {method:"POST"});
-      if (!r.ok) throw new Error(await r.text());
-      const result = await r.json();
-      await loadProductMonitor();
-      setProductMessage(`Amazon scan complete: ${result.ok || 0}/${result.checked || 0} mapped products checked successfully.`);
-    } catch(e) { setProductMessage(`Amazon scan failed: ${e.message || e}`); }
-    finally { setProductBusy(false); }
-  }
-
   async function loadOrders(search=activeSearch, page=1, selectedShop=shop, attention=attentionOnly) {
     setLoading(true); setError("");
     try {
@@ -98,7 +39,7 @@ export default function Home() {
     catch(e) { setError(e.message || "Failed to load dashboard"); }
   }
 
-  useEffect(() => { reloadAll("polaris-zone", false); loadProductMonitor().catch(()=>{}); }, []);
+  useEffect(() => { reloadAll("polaris-zone", false); }, []);
 
   async function syncNow() {
     setSyncing(true); setError("");
@@ -123,6 +64,7 @@ export default function Home() {
   function go(page){if(page<1||page>pagination.total_pages)return;loadOrders(activeSearch,page,shop,attentionOnly);window.scrollTo({top:0,behavior:"smooth"})}
 
   return <main>
+    <nav className="app-nav"><Link className="active" href="/">Orders dashboard</Link><Link href="/product-monitor">Product price monitor</Link></nav>
     <header className="hero">
       <div><h1>JSS XRay</h1><p>TikTok Shop profitability and Amazon fulfilment reconciliation.</p></div>
       <button className="sync-button" onClick={syncNow} disabled={syncing}>{syncing?"Synchronising…":"Sync TikTok now"}</button>
@@ -199,50 +141,7 @@ export default function Home() {
       {pagination.total_pages>1 && <nav className="pagination"><button onClick={()=>go(pagination.page-1)} disabled={!pagination.has_previous||loading}>Previous</button><span>Page <strong>{pagination.page}</strong> of <strong>{pagination.total_pages}</strong></span><button onClick={()=>go(pagination.page+1)} disabled={!pagination.has_next||loading}>Next</button></nav>}
     </section>
 
-    <section className="product-monitor-section">
-      <div className="section-head">
-        <div><h2>Product price monitor</h2><p>Polaris Zone TikTok prices compared with the Amazon source URL stored in each product Seller SKU.</p></div>
-        <div className="product-monitor-actions">
-          <button className="attention" onClick={syncProducts} disabled={productBusy}>{productBusy?"Working…":"Sync products"}</button>
-          <button className="sync-button" onClick={checkAllProductSources} disabled={productBusy || !productMonitor.mapped}>Check Amazon prices</button>
-        </div>
-      </div>
-      <div className="product-monitor-summary">
-        <div><small>Active products</small><strong>{productMonitor.total || 0}</strong></div>
-        <div><small>Seller SKU sources</small><strong>{productMonitor.mapped || 0}</strong></div>
-        <div><small>Seller SKU missing</small><strong>{productMonitor.unmapped || 0}</strong></div>
-        <div><small>Amazon price increased</small><strong>{productMonitor.price_increased || 0}</strong></div>
-        <div><small>Source check problems</small><strong>{productMonitor.source_errors || 0}</strong></div>
-      </div>
-      {productMessage && <div className="product-monitor-message">{productMessage}</div>}
-      {(productMonitor.items || []).length === 0 ? <div className="empty">No product catalogue imported yet. Click <strong>Sync products</strong>.</div> :
-      <div className="product-monitor-list">{(productMonitor.items || []).map(p=>{
-        const sourceDelta = p.source_price_change;
-        const spread = p.price_difference;
-        return <article className="product-monitor-card" key={p.id}>
-          <div className="product-monitor-title">
-            <div><strong>{p.title}</strong><small>TikTok #{p.tiktok_product_id}</small></div>
-            <span className={`source-status ${(p.source_check_status||"unmapped").toLowerCase()}`}>{p.source_check_status || "UNMAPPED"}</span>
-          </div>
-          <div className="product-monitor-grid">
-            <div><small>TikTok price</small><strong>{money(p.tiktok_price)}</strong></div>
-            <div><small>Amazon current price</small><strong>{money(p.source_price)}</strong></div>
-            <div><small>TikTok − Amazon</small><strong className={spread!=null && spread<0?"bad":"good"}>{money(spread)}</strong></div>
-            <div><small>Amazon price movement</small><strong className={sourceDelta>0?"bad":sourceDelta<0?"good":""}>{sourceDelta==null?"—":`${sourceDelta>0?"+":""}${money(sourceDelta)}`}</strong><em>{sourceDelta>0?"Price up":sourceDelta<0?"Price down":sourceDelta===0?"No change":"No previous scan"}</em></div>
-            <div><small>Last Amazon check</small><strong>{p.source_checked_at?date(p.source_checked_at):"Never"}</strong></div>
-          </div>
-          <div className="source-mapping">
-            <div className="seller-sku-source">
-              <small>Seller SKU / Amazon source</small>
-              {p.source_url ? <a href={p.source_url} target="_blank" rel="noreferrer">{p.seller_sku}</a> : <strong className="bad">Add Amazon URL to Seller SKU in TikTok</strong>}
-            </div>
-            <button className="sync-button" onClick={()=>checkProductSource(p)} disabled={productBusy || !p.source_url}>Check now</button>
-          </div>
-          {p.source_asin && <div className="product-source-meta"><span>ASIN: <strong>{p.source_asin}</strong></span>{p.previous_source_price!=null && <span>Previous Amazon price: <strong>{money(p.previous_source_price)}</strong></span>}</div>}
-          {p.source_check_message && <div className="product-source-warning">{p.source_check_message}</div>}
-        </article>
-      })}</div>}
-    </section>
+
 
   </main>;
 }
