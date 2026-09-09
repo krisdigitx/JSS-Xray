@@ -8,24 +8,46 @@ const money = v => v == null ? "—" : `£${Number(v).toFixed(2)}`;
 const date = v => v ? new Date(v).toLocaleString("en-GB", {dateStyle:"medium", timeStyle:"short"}) : "Never";
 
 export default function ProductMonitorPage() {
-  const [productMonitor, setProductMonitor] = useState({total:0,mapped:0,unmapped:0,price_increased:0,price_decreased:0,prices_checked:0,source_errors:0,items:[],pagination:{page:1,page_size:PAGE_SIZE,total:0,total_pages:0,has_previous:false,has_next:false}});
+  const [productMonitor, setProductMonitor] = useState({total:0,filtered_total:0,mapped:0,unmapped:0,price_increased:0,price_decreased:0,prices_checked:0,source_errors:0,items:[],pagination:{page:1,page_size:PAGE_SIZE,total:0,total_pages:0,has_previous:false,has_next:false}});
   const [productBusy, setProductBusy] = useState(false);
   const [productMessage, setProductMessage] = useState("");
   const [error, setError] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
 
-  async function loadProductMonitor(page=1) {
+  async function loadProductMonitor(page=1, query=searchQuery, filter=sourceFilter) {
     setError("");
     const params = new URLSearchParams({shop:"polaris-zone",page:String(page),page_size:String(PAGE_SIZE)});
+    if (query.trim()) params.set("q", query.trim());
+    if (filter === "missing") params.set("mapped", "false");
+    if (filter === "mapped") params.set("mapped", "true");
     const r = await fetch(`${API}/api/product-monitor/products?${params}`, {cache:"no-store"});
     if (!r.ok) throw new Error(`Product Price Monitor API failed (${r.status})`);
     setProductMonitor(await r.json());
+  }
+  function searchProducts(e) {
+    e?.preventDefault();
+    const query = searchInput.trim();
+    setSearchQuery(query);
+    loadProductMonitor(1, query, sourceFilter).catch(e=>setError(e.message || "Failed to search products"));
+  }
+  function changeSourceFilter(value) {
+    setSourceFilter(value);
+    loadProductMonitor(1, searchQuery, value).catch(e=>setError(e.message || "Failed to filter products"));
+  }
+  function clearFilters() {
+    setSearchInput("");
+    setSearchQuery("");
+    setSourceFilter("all");
+    loadProductMonitor(1, "", "all").catch(e=>setError(e.message || "Failed to load product monitor"));
   }
   async function syncProducts() {
     setProductBusy(true); setProductMessage(""); setError("");
     try {
       const r = await fetch(`${API}/api/product-monitor/sync-products?shop=polaris-zone`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      const result = await r.json(); await loadProductMonitor(1);
+      const result = await r.json(); await loadProductMonitor(1, searchQuery, sourceFilter);
       setProductMessage(`Product catalogue synced: ${result.products || 0} active Polaris Zone products.`);
     } catch(e) { setError(`Product sync failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
@@ -34,7 +56,7 @@ export default function ProductMonitorPage() {
     try {
       const r = await fetch(`${API}/api/product-monitor/products/${product.id}/check`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      await loadProductMonitor(productMonitor.pagination?.page || 1); setProductMessage(`Amazon price checked for ${product.title}.`);
+      await loadProductMonitor(productMonitor.pagination?.page || 1, searchQuery, sourceFilter); setProductMessage(`Amazon price checked for ${product.title}.`);
     } catch(e) { setError(`Price check failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
   async function checkAllProductSources() {
@@ -42,19 +64,20 @@ export default function ProductMonitorPage() {
     try {
       const r = await fetch(`${API}/api/product-monitor/check?shop=polaris-zone`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      const result = await r.json(); await loadProductMonitor(productMonitor.pagination?.page || 1);
+      const result = await r.json(); await loadProductMonitor(productMonitor.pagination?.page || 1, searchQuery, sourceFilter);
       setProductMessage(`Amazon scan complete: ${result.ok || 0}/${result.checked || 0} mapped products checked successfully.`);
     } catch(e) { setError(`Amazon scan failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
   function go(page) {
     const pagination=productMonitor.pagination || {};
     if (page < 1 || page > (pagination.total_pages || 0)) return;
-    loadProductMonitor(page).catch(e=>setError(e.message || "Failed to load product monitor"));
+    loadProductMonitor(page, searchQuery, sourceFilter).catch(e=>setError(e.message || "Failed to load product monitor"));
     window.scrollTo({top:0,behavior:"smooth"});
   }
-  useEffect(() => { loadProductMonitor(1).catch(e=>setError(e.message || "Failed to load product monitor")); }, []);
+  useEffect(() => { loadProductMonitor(1, "", "all").catch(e=>setError(e.message || "Failed to load product monitor")); }, []);
 
   const pagination=productMonitor.pagination || {page:1,total_pages:0,total:0,has_previous:false,has_next:false};
+  const filtersActive=Boolean(searchQuery || sourceFilter !== "all");
 
   return <main>
     <nav className="app-nav"><Link href="/">Orders dashboard</Link><Link className="active" href="/product-monitor">Product price monitor</Link></nav>
@@ -77,8 +100,22 @@ export default function ProductMonitorPage() {
     {error && <div className="error"><strong>Error:</strong> {error}</div>}
 
     <section className="product-monitor-section standalone">
-      <div className="section-head"><div><h2>Polaris Zone products</h2><p>{productMonitor.total || 0} active products. Showing {productMonitor.items?.length || 0} on page {pagination.page || 1}.</p></div></div>
-      {(productMonitor.items || []).length === 0 ? <div className="empty">No product catalogue imported yet. Click <strong>Sync products</strong>.</div> :
+      <div className="section-head"><div><h2>Polaris Zone products</h2><p>{filtersActive ? `${productMonitor.filtered_total ?? pagination.total ?? 0} matching products from ${productMonitor.total || 0} active products.` : `${productMonitor.total || 0} active products.`} Showing {productMonitor.items?.length || 0} on page {pagination.page || 1}.</p></div></div>
+
+      <form className="product-monitor-toolbar" onSubmit={searchProducts}>
+        <div className="product-search-box">
+          <input value={searchInput} onChange={e=>setSearchInput(e.target.value)} placeholder="Search product name, TikTok product ID, Seller SKU or ASIN" aria-label="Search products" />
+          <button className="sync-button" type="submit" disabled={productBusy}>Search</button>
+        </div>
+        <select value={sourceFilter} onChange={e=>changeSourceFilter(e.target.value)} disabled={productBusy} aria-label="Filter by Seller SKU source">
+          <option value="all">All source statuses</option>
+          <option value="missing">Missing Seller SKU source</option>
+          <option value="mapped">Has Seller SKU source</option>
+        </select>
+        {filtersActive && <button className="attention" type="button" onClick={clearFilters} disabled={productBusy}>Clear filters</button>}
+      </form>
+
+      {(productMonitor.items || []).length === 0 ? <div className="empty">{filtersActive ? <>No products match the current search/filter.</> : <>No product catalogue imported yet. Click <strong>Sync products</strong>.</>}</div> :
       <div className="product-monitor-list">{(productMonitor.items || []).map(p=>{
         const sourceDelta=p.source_price_change; const spread=p.price_difference;
         return <article className="product-monitor-card" key={p.id}>
@@ -97,7 +134,7 @@ export default function ProductMonitorPage() {
       })}</div>}
       {pagination.total_pages > 1 && <div className="pagination product-pagination">
         <button onClick={()=>go((pagination.page||1)-1)} disabled={!pagination.has_previous || productBusy}>Previous</button>
-        <span>Page <strong>{pagination.page}</strong> of <strong>{pagination.total_pages}</strong> · {pagination.total} products</span>
+        <span>Page <strong>{pagination.page}</strong> of <strong>{pagination.total_pages}</strong> · {pagination.total} {filtersActive?"matching ":""}products</span>
         <button onClick={()=>go((pagination.page||1)+1)} disabled={!pagination.has_next || productBusy}>Next</button>
       </div>}
     </section>
