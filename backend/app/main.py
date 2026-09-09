@@ -544,6 +544,8 @@ def product_monitor_products(
     shop: str = Query(default="polaris-zone"),
     q: str | None = Query(default=None),
     mapped: bool | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     filters = [TikTokShop.slug == shop]
@@ -554,6 +556,9 @@ def product_monitor_products(
     if q:
         like = f"%{q}%"
         filters.append(or_(TikTokProduct.title.ilike(like), TikTokProduct.tiktok_product_id.ilike(like), TikTokProduct.seller_sku.ilike(like), TikTokProduct.source_asin.ilike(like)))
+
+    # Keep monitor statistics calculated across the full filtered catalogue,
+    # while returning only the requested page to the browser.
     rows = db.scalars(
         select(TikTokProduct)
         .join(TikTokShop)
@@ -561,14 +566,30 @@ def product_monitor_products(
         .where(*filters)
         .order_by(TikTokProduct.title)
     ).all()
-    payload = [_product_monitor_payload(row) for row in rows]
+    all_payload = [_product_monitor_payload(row) for row in rows]
+    total = len(all_payload)
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    safe_page = min(page, total_pages) if total_pages else 1
+    offset = (safe_page - 1) * page_size
+    payload = all_payload[offset:offset + page_size]
+
     return {
         "shop": shop,
-        "total": len(payload),
-        "mapped": sum(1 for p in payload if p["source_url"]),
-        "unmapped": sum(1 for p in payload if not p["source_url"]),
-        "price_increased": sum(1 for p in payload if p["source_price_change"] is not None and p["source_price_change"] > 0),
-        "source_errors": sum(1 for p in payload if p["source_check_status"] in {"ERROR", "BLOCKED", "NOT_FOUND"}),
+        "total": total,
+        "mapped": sum(1 for p in all_payload if p["source_url"]),
+        "unmapped": sum(1 for p in all_payload if not p["source_url"]),
+        "price_increased": sum(1 for p in all_payload if p["source_price_change"] is not None and p["source_price_change"] > 0),
+        "price_decreased": sum(1 for p in all_payload if p["source_price_change"] is not None and p["source_price_change"] < 0),
+        "prices_checked": sum(1 for p in all_payload if p["source_checked_at"]),
+        "source_errors": sum(1 for p in all_payload if p["source_check_status"] in {"ERROR", "BLOCKED", "NOT_FOUND"}),
+        "pagination": {
+            "page": safe_page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+            "has_previous": safe_page > 1,
+            "has_next": safe_page < total_pages,
+        },
         "items": payload,
     }
 
@@ -612,4 +633,4 @@ def product_monitor_check_all(shop: str = Query(default="polaris-zone")):
 
 @app.get("/api/version")
 def api_version():
-    return {"version": "v10-seller-sku-product-monitor", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}
+    return {"version": "v12-product-pagination-dashboard-fix", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}

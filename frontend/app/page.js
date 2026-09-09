@@ -21,6 +21,18 @@ export default function Home() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
 
+  async function loadShops() {
+    const r = await fetch(`${API}/api/tiktok/shops`, {cache:"no-store"});
+    if (!r.ok) throw new Error(`TikTok shops API failed (${r.status})`);
+    setShops(await r.json());
+  }
+
+  async function loadDashboard(selectedShop=shop) {
+    const r = await fetch(`${API}/api/dashboard?shop=${encodeURIComponent(selectedShop)}`, {cache:"no-store"});
+    if (!r.ok) throw new Error(`Dashboard API failed (${r.status})`);
+    setDashboard(await r.json());
+  }
+
   async function loadOrders(search=activeSearch, page=1, selectedShop=shop, attention=attentionOnly) {
     setLoading(true); setError("");
     try {

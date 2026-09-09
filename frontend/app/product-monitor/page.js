@@ -1,20 +1,22 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "";
+const PAGE_SIZE = 25;
 const money = v => v == null ? "—" : `£${Number(v).toFixed(2)}`;
 const date = v => v ? new Date(v).toLocaleString("en-GB", {dateStyle:"medium", timeStyle:"short"}) : "Never";
 
 export default function ProductMonitorPage() {
-  const [productMonitor, setProductMonitor] = useState({total:0,mapped:0,unmapped:0,price_increased:0,source_errors:0,items:[]});
+  const [productMonitor, setProductMonitor] = useState({total:0,mapped:0,unmapped:0,price_increased:0,price_decreased:0,prices_checked:0,source_errors:0,items:[],pagination:{page:1,page_size:PAGE_SIZE,total:0,total_pages:0,has_previous:false,has_next:false}});
   const [productBusy, setProductBusy] = useState(false);
   const [productMessage, setProductMessage] = useState("");
   const [error, setError] = useState("");
 
-  async function loadProductMonitor() {
+  async function loadProductMonitor(page=1) {
     setError("");
-    const r = await fetch(`${API}/api/product-monitor/products?shop=polaris-zone`, {cache:"no-store"});
+    const params = new URLSearchParams({shop:"polaris-zone",page:String(page),page_size:String(PAGE_SIZE)});
+    const r = await fetch(`${API}/api/product-monitor/products?${params}`, {cache:"no-store"});
     if (!r.ok) throw new Error(`Product Price Monitor API failed (${r.status})`);
     setProductMonitor(await r.json());
   }
@@ -23,7 +25,7 @@ export default function ProductMonitorPage() {
     try {
       const r = await fetch(`${API}/api/product-monitor/sync-products?shop=polaris-zone`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      const result = await r.json(); await loadProductMonitor();
+      const result = await r.json(); await loadProductMonitor(1);
       setProductMessage(`Product catalogue synced: ${result.products || 0} active Polaris Zone products.`);
     } catch(e) { setError(`Product sync failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
@@ -32,7 +34,7 @@ export default function ProductMonitorPage() {
     try {
       const r = await fetch(`${API}/api/product-monitor/products/${product.id}/check`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      await loadProductMonitor(); setProductMessage(`Amazon price checked for ${product.title}.`);
+      await loadProductMonitor(productMonitor.pagination?.page || 1); setProductMessage(`Amazon price checked for ${product.title}.`);
     } catch(e) { setError(`Price check failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
   async function checkAllProductSources() {
@@ -40,19 +42,19 @@ export default function ProductMonitorPage() {
     try {
       const r = await fetch(`${API}/api/product-monitor/check?shop=polaris-zone`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      const result = await r.json(); await loadProductMonitor();
+      const result = await r.json(); await loadProductMonitor(productMonitor.pagination?.page || 1);
       setProductMessage(`Amazon scan complete: ${result.ok || 0}/${result.checked || 0} mapped products checked successfully.`);
     } catch(e) { setError(`Amazon scan failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
-  useEffect(() => { loadProductMonitor().catch(e=>setError(e.message || "Failed to load product monitor")); }, []);
+  function go(page) {
+    const pagination=productMonitor.pagination || {};
+    if (page < 1 || page > (pagination.total_pages || 0)) return;
+    loadProductMonitor(page).catch(e=>setError(e.message || "Failed to load product monitor"));
+    window.scrollTo({top:0,behavior:"smooth"});
+  }
+  useEffect(() => { loadProductMonitor(1).catch(e=>setError(e.message || "Failed to load product monitor")); }, []);
 
-  const stats = useMemo(() => {
-    const items=productMonitor.items || [];
-    const priceDown=items.filter(p=>Number(p.source_price_change)<0).length;
-    const unchanged=items.filter(p=>p.source_price_change != null && Number(p.source_price_change)===0).length;
-    const checked=items.filter(p=>p.source_checked_at).length;
-    return {priceDown, unchanged, checked};
-  }, [productMonitor]);
+  const pagination=productMonitor.pagination || {page:1,total_pages:0,total:0,has_previous:false,has_next:false};
 
   return <main>
     <nav className="app-nav"><Link href="/">Orders dashboard</Link><Link className="active" href="/product-monitor">Product price monitor</Link></nav>
@@ -66,16 +68,16 @@ export default function ProductMonitorPage() {
       <div className="metric positive"><small>Amazon sources mapped</small><strong>{productMonitor.mapped || 0}</strong><span>Seller SKU contains Amazon URL</span></div>
       <div className={`metric ${productMonitor.unmapped?"warn":""}`}><small>Source missing</small><strong>{productMonitor.unmapped || 0}</strong><span>Add source to TikTok Seller SKU</span></div>
       <div className={`metric ${productMonitor.price_increased?"negative":""}`}><small>Amazon price increased</small><strong>{productMonitor.price_increased || 0}</strong><span>Since previous check</span></div>
-      <div className="metric positive"><small>Amazon price decreased</small><strong>{stats.priceDown}</strong><span>Since previous check</span></div>
+      <div className="metric positive"><small>Amazon price decreased</small><strong>{productMonitor.price_decreased || 0}</strong><span>Since previous check</span></div>
       <div className={`metric ${productMonitor.source_errors?"negative":""}`}><small>Check problems</small><strong>{productMonitor.source_errors || 0}</strong><span>Blocked / unavailable / errors</span></div>
-      <div className="metric"><small>Prices checked</small><strong>{stats.checked}</strong><span>Products with scan history</span></div>
+      <div className="metric"><small>Prices checked</small><strong>{productMonitor.prices_checked || 0}</strong><span>Products with scan history</span></div>
     </section>
 
     {productMessage && <div className="product-monitor-message">{productMessage}</div>}
     {error && <div className="error"><strong>Error:</strong> {error}</div>}
 
     <section className="product-monitor-section standalone">
-      <div className="section-head"><div><h2>Polaris Zone products</h2><p>{productMonitor.total || 0} active products. Seller SKU is the primary Amazon source.</p></div></div>
+      <div className="section-head"><div><h2>Polaris Zone products</h2><p>{productMonitor.total || 0} active products. Showing {productMonitor.items?.length || 0} on page {pagination.page || 1}.</p></div></div>
       {(productMonitor.items || []).length === 0 ? <div className="empty">No product catalogue imported yet. Click <strong>Sync products</strong>.</div> :
       <div className="product-monitor-list">{(productMonitor.items || []).map(p=>{
         const sourceDelta=p.source_price_change; const spread=p.price_difference;
@@ -93,6 +95,11 @@ export default function ProductMonitorPage() {
           {p.source_check_message && <div className="product-source-warning">{p.source_check_message}</div>}
         </article>
       })}</div>}
+      {pagination.total_pages > 1 && <div className="pagination product-pagination">
+        <button onClick={()=>go((pagination.page||1)-1)} disabled={!pagination.has_previous || productBusy}>Previous</button>
+        <span>Page <strong>{pagination.page}</strong> of <strong>{pagination.total_pages}</strong> · {pagination.total} products</span>
+        <button onClick={()=>go((pagination.page||1)+1)} disabled={!pagination.has_next || productBusy}>Next</button>
+      </div>}
     </section>
   </main>;
 }
