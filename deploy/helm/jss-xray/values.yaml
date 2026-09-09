@@ -82,3 +82,9 @@ tiktokShops:
     name: JSS Traders
     enabled: false
     secretName: jss-xray-tiktok-jss-traders
+
+productMonitor:
+  enabled: true
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2

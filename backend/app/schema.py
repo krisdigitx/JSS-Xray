@@ -8,7 +8,7 @@ ACCOUNTS = [
     ("jss-traders", "JSS Traders"),
 ]
 
-MIGRATION_VERSION = 2
+MIGRATION_VERSION = 3
 ADVISORY_LOCK_ID = 746737971  # Stable application-specific PostgreSQL advisory lock.
 
 

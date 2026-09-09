@@ -2,7 +2,7 @@ backend:
   replicaCount: 1
   image:
     repository: krisdigitx/jss-xray-backend
-    tag: sha-8c46bd02d7e6
+    tag: sha-2f9c155c30ab
     pullPolicy: Always
   resources:
     requests:
@@ -16,7 +16,7 @@ frontend:
   replicaCount: 1
   image:
     repository: krisdigitx/jss-xray-frontend
-    tag: sha-8c46bd02d7e6
+    tag: sha-2f9c155c30ab
     pullPolicy: Always
   service:
     type: LoadBalancer
@@ -90,3 +90,9 @@ tiktokShops:
     name: JSS Traders
     enabled: false
     secretName: jss-xray-tiktok-jss-traders
+
+productMonitor:
+  enabled: true
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2

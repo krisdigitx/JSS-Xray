@@ -4,16 +4,18 @@ from decimal import Decimal
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response
+from pydantic import BaseModel
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
 from .db import get_db
-from .models import AmazonAccount, Order, OrderItem, TikTokOrder, TikTokShop
+from .models import AmazonAccount, Order, OrderItem, ProductPriceHistory, TikTokOrder, TikTokProduct, TikTokShop
 from .sync import sync_orders
 from .tiktok import TikTokClient, exchange_auth_code
 from .tiktok_sync import sync_tiktok_orders
+from .product_monitor import check_mapped_products, check_product_source, extract_asin, sync_tiktok_products
 
 app = FastAPI(title="JSS XRay", version="2.0.0")
 app.add_middleware(
@@ -504,6 +506,110 @@ def tiktok_sync():
     return sync_tiktok_orders()
 
 
+class ProductSourceUpdate(BaseModel):
+    source_url: str | None = None
+
+
+def _product_monitor_payload(row: TikTokProduct):
+    tiktok_price = _f(row.tiktok_price)
+    source_price = _f(row.source_price)
+    previous = _f(row.previous_source_price)
+    difference = (tiktok_price - source_price) if tiktok_price is not None and source_price is not None else None
+    source_change = (source_price - previous) if source_price is not None and previous is not None else None
+    return {
+        "id": row.id,
+        "tiktok_product_id": row.tiktok_product_id,
+        "title": row.title,
+        "status": row.status,
+        "currency": row.currency,
+        "tiktok_price": tiktok_price,
+        "seller_sku": row.seller_sku,
+        "sku_count": row.sku_count,
+        "source_url": row.source_url,
+        "source_asin": row.source_asin,
+        "source_price": source_price,
+        "previous_source_price": previous,
+        "source_price_change": source_change,
+        "price_difference": difference,
+        "source_checked_at": row.source_checked_at,
+        "source_check_status": row.source_check_status or ("UNMAPPED" if not row.source_url else "PENDING"),
+        "source_check_message": row.source_check_message,
+        "product_synced_at": row.product_synced_at,
+        "shop": {"slug": row.shop.slug, "name": row.shop.name},
+    }
+
+
+@app.get("/api/product-monitor/products")
+def product_monitor_products(
+    shop: str = Query(default="polaris-zone"),
+    q: str | None = Query(default=None),
+    mapped: bool | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    filters = [TikTokShop.slug == shop]
+    if mapped is True:
+        filters.append(TikTokProduct.source_url.is_not(None))
+    elif mapped is False:
+        filters.append(TikTokProduct.source_url.is_(None))
+    if q:
+        like = f"%{q}%"
+        filters.append(or_(TikTokProduct.title.ilike(like), TikTokProduct.tiktok_product_id.ilike(like), TikTokProduct.seller_sku.ilike(like), TikTokProduct.source_asin.ilike(like)))
+    rows = db.scalars(
+        select(TikTokProduct)
+        .join(TikTokShop)
+        .options(selectinload(TikTokProduct.shop))
+        .where(*filters)
+        .order_by(TikTokProduct.title)
+    ).all()
+    payload = [_product_monitor_payload(row) for row in rows]
+    return {
+        "shop": shop,
+        "total": len(payload),
+        "mapped": sum(1 for p in payload if p["source_url"]),
+        "unmapped": sum(1 for p in payload if not p["source_url"]),
+        "price_increased": sum(1 for p in payload if p["source_price_change"] is not None and p["source_price_change"] > 0),
+        "source_errors": sum(1 for p in payload if p["source_check_status"] in {"ERROR", "BLOCKED", "NOT_FOUND"}),
+        "items": payload,
+    }
+
+
+@app.post("/api/product-monitor/sync-products")
+def product_monitor_sync_products(shop: str = Query(default="polaris-zone")):
+    if shop != "polaris-zone":
+        raise HTTPException(status_code=400, detail="Product Price Monitor is enabled for Polaris Zone only")
+    return sync_tiktok_products(shop)
+
+
+@app.put("/api/product-monitor/products/{product_id}/source")
+def product_monitor_update_source(product_id: int, update: ProductSourceUpdate, db: Session = Depends(get_db)):
+    # Seller SKU in TikTok is the source of truth for Polaris Zone. Keep this
+    # endpoint for backwards compatibility, but do not allow JSS Xray to create
+    # a competing source mapping.
+    raise HTTPException(
+        status_code=409,
+        detail="Amazon source is managed from the TikTok Seller SKU. Add or update the Amazon URL in Polaris Zone, then sync products.",
+    )
+
+
+@app.post("/api/product-monitor/products/{product_id}/check")
+def product_monitor_check_one(product_id: int, db: Session = Depends(get_db)):
+    row = db.scalar(select(TikTokProduct).where(TikTokProduct.id == product_id).options(selectinload(TikTokProduct.shop)))
+    if not row:
+        raise HTTPException(status_code=404, detail="TikTok product not found")
+    if not row.source_url:
+        raise HTTPException(status_code=400, detail="Seller SKU does not contain an Amazon source URL. Add it in TikTok, then sync products.")
+    result = check_product_source(row, db)
+    db.commit()
+    return {"result": result, "product": _product_monitor_payload(row)}
+
+
+@app.post("/api/product-monitor/check")
+def product_monitor_check_all(shop: str = Query(default="polaris-zone")):
+    if shop != "polaris-zone":
+        raise HTTPException(status_code=400, detail="Product Price Monitor is enabled for Polaris Zone only")
+    return check_mapped_products(shop)
+
+
 @app.get("/api/version")
 def api_version():
-    return {"version": "v8-finance-reconciliation", "finance_sort_field": "order_create_time"}
+    return {"version": "v10-seller-sku-product-monitor", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}

@@ -123,6 +123,25 @@ class TikTokClient:
                 break
         return orders
 
+    def search_products(self, *, status: str = "ACTIVATE", page_size: int = 100) -> list[dict]:
+        """Retrieve the shop product catalogue used by Product Price Monitor.
+
+        TikTok Search Products v202502 requires seller.product.basic and the
+        shop cipher. It returns SKU price data needed for comparison.
+        """
+        path = "/product/202502/products/search"
+        products: list[dict] = []
+        token = None
+        while True:
+            params = {"page_size": min(page_size, 100), "page_token": token}
+            body = {"status": status, "locale": "en-GB"}
+            data = self._request("POST", path, params=params, body=body)
+            products.extend(data.get("products") or [])
+            token = data.get("next_page_token")
+            if not token:
+                break
+        return products
+
     def unsettled_transactions(self, *, search_time_ge: int, search_time_lt: int, page_size: int = 50) -> dict[str, dict]:
         path = "/finance/202507/orders/unsettled"
         by_order: dict[str, dict] = {}

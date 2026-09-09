@@ -95,6 +95,7 @@ class TikTokShop(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     orders: Mapped[list["TikTokOrder"]] = relationship(back_populates="shop")
+    products: Mapped[list["TikTokProduct"]] = relationship(back_populates="shop")
 
 
 class TikTokOrder(Base):
@@ -124,3 +125,49 @@ class TikTokOrder(Base):
 
     shop: Mapped["TikTokShop"] = relationship(back_populates="orders")
     amazon_order: Mapped["Order | None"] = relationship(back_populates="tiktok_orders")
+
+
+class TikTokProduct(Base):
+    __tablename__ = "tiktok_products"
+    __table_args__ = (UniqueConstraint("shop_id", "tiktok_product_id", name="uq_tiktok_shop_product"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("tiktok_shops.id"), index=True)
+    tiktok_product_id: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(64), index=True, default="UNKNOWN")
+    currency: Mapped[str] = mapped_column(String(3), default="GBP")
+    tiktok_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    seller_sku: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sku_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Amazon source mapping is intentionally private to JSS Xray.  We do not
+    # modify the live TikTok listing or overload the public product description.
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_asin: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    source_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    previous_source_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    source_currency: Mapped[str] = mapped_column(String(3), default="GBP")
+    source_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_check_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_check_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    product_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    shop: Mapped["TikTokShop"] = relationship(back_populates="products")
+    price_history: Mapped[list["ProductPriceHistory"]] = relationship(back_populates="product", cascade="all, delete-orphan")
+
+
+class ProductPriceHistory(Base):
+    __tablename__ = "product_price_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("tiktok_products.id", ondelete="CASCADE"), index=True)
+    tiktok_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    source_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    source_currency: Mapped[str] = mapped_column(String(3), default="GBP")
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+
+    product: Mapped["TikTokProduct"] = relationship(back_populates="price_history")
