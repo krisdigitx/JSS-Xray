@@ -108,6 +108,29 @@ def list_message_ids(max_results: int = 50, after=None):
     return [m["id"] for m in result.get("messages", [])]
 
 
+def list_message_ids_for_order(order_id: str, max_results: int = 10):
+    """Find Gmail messages that mention one exact Amazon order ID.
+
+    This is used to reconcile TikTok orders that already contain an Amazon
+    order reference but have not yet been imported by the normal recent Gmail
+    scan. We intentionally search the mailbox by order ID rather than trusting
+    the price written in the TikTok seller note.
+    """
+    order_id = (order_id or "").strip()
+    if not re.fullmatch(r"[0-9]{3}-[0-9]{7}-[0-9]{7}", order_id):
+        return []
+
+    query = f'"{order_id}" -in:spam -in:trash'
+    result = execute_with_retry(
+        service().users().messages().list(
+            userId="me",
+            q=query,
+            maxResults=max(1, min(max_results, 20)),
+        )
+    )
+    return [m["id"] for m in result.get("messages", [])]
+
+
 def read_message(message_id: str):
     return execute_with_retry(
         service().users().messages().get(

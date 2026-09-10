@@ -4,8 +4,8 @@ from email.utils import parsedate_to_datetime
 from sqlalchemy import exists, or_, select
 from .config import settings
 from .db import SessionLocal
-from .gmail import list_message_ids, read_message
-from .models import AmazonAccount, Order, OrderEvent, OrderItem
+from .gmail import list_message_ids, list_message_ids_for_order, read_message
+from .models import AmazonAccount, Order, OrderEvent, OrderItem, TikTokOrder, TikTokShop
 from .parser import parse_amazon_email
 
 
@@ -178,6 +178,49 @@ def _backfill_message_ids(db, account_id: int, limit: int):
 
     return list(db.scalars(stmt).all())
 
+
+
+def _unmatched_tiktok_refs(db, account_slug: str, limit: int = 25):
+    """Return Amazon order references TikTok has extracted but Gmail has not matched yet."""
+    stmt = (
+        select(TikTokOrder.amazon_order_id_ref)
+        .join(TikTokShop, TikTokOrder.shop_id == TikTokShop.id)
+        .where(
+            TikTokShop.slug == account_slug,
+            TikTokOrder.amazon_order_db_id.is_(None),
+            TikTokOrder.amazon_order_id_ref.is_not(None),
+        )
+        .order_by(TikTokOrder.update_time.desc().nullslast(), TikTokOrder.id.desc())
+        .limit(limit)
+    )
+    return list(dict.fromkeys(r for r in db.scalars(stmt).all() if r))
+
+
+def _link_tiktok_orders(db, account: AmazonAccount) -> int:
+    """Immediately reconcile unmatched TikTok rows after Gmail creates/enriches Amazon orders."""
+    rows = db.scalars(
+        select(TikTokOrder)
+        .join(TikTokShop, TikTokOrder.shop_id == TikTokShop.id)
+        .where(
+            TikTokShop.slug == account.slug,
+            TikTokOrder.amazon_order_db_id.is_(None),
+            TikTokOrder.amazon_order_id_ref.is_not(None),
+        )
+    ).all()
+
+    linked = 0
+    for row in rows:
+        order = db.scalar(
+            select(Order).where(
+                Order.account_id == account.id,
+                Order.amazon_order_id == row.amazon_order_id_ref,
+            )
+        )
+        if order:
+            row.amazon_order_db_id = order.id
+            linked += 1
+    return linked
+
 def sync_orders(max_results=None):
     processed = skipped = enriched = price_enriched = 0
     touched_order_ids = set()
@@ -205,14 +248,30 @@ def sync_orders(max_results=None):
             settings.gmail_backfill_messages,
         )
 
-        # Preserve order, remove duplicates. Typical maximum = 100 reads/run.
-        message_ids = list(dict.fromkeys(recent_ids + backfill_ids))
+        # TikTok already gives us the exact Amazon order ID in the seller note.
+        # For any unmatched order, query this account's Gmail directly by that ID
+        # so a new Amazon confirmation cannot be missed just because it fell
+        # outside the normal recent-message batch. The price is still parsed from
+        # Gmail; the TikTok note's Price value is never used as purchase cost.
+        unmatched_refs = _unmatched_tiktok_refs(db, account.slug, limit=25)
+        targeted_ids = []
+        for amazon_order_id in unmatched_refs:
+            try:
+                targeted_ids.extend(list_message_ids_for_order(amazon_order_id, max_results=10))
+            except Exception as exc:
+                print({"account": account.slug, "targeted_order": amazon_order_id, "gmail_lookup_warning": str(exc)}, flush=True)
+
+        # Preserve order and remove duplicates. Targeted reconciliation messages
+        # are prioritised, followed by the normal recent scan and price backfill.
+        message_ids = list(dict.fromkeys(targeted_ids + recent_ids + backfill_ids))
 
         print(
             {
                 "account": settings.account_slug,
                 "recent_candidates": len(recent_ids),
                 "backfill_candidates": len(backfill_ids),
+                "unmatched_tiktok_refs": len(unmatched_refs),
+                "targeted_gmail_candidates": len(targeted_ids),
                 "unique_messages": len(message_ids),
                 "after": recent_after.isoformat() if recent_after else None,
             },
@@ -295,6 +354,8 @@ def sync_orders(max_results=None):
             order = db.get(Order, order_id)
             if order:
                 _refresh_order_status(db, order)
+
+        tiktok_linked = _link_tiktok_orders(db, account)
         db.commit()
 
     return {
@@ -304,8 +365,11 @@ def sync_orders(max_results=None):
         "skipped": skipped,
         "recent_candidates": len(recent_ids),
         "backfill_candidates": len(backfill_ids),
+        "unmatched_tiktok_refs": len(unmatched_refs),
+        "targeted_gmail_candidates": len(targeted_ids),
         "messages_checked": len(message_ids),
         "price_enriched": price_enriched,
+        "tiktok_linked": tiktok_linked,
     }
 
 
