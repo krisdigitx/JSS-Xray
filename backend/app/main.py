@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -510,6 +510,53 @@ class ProductSourceUpdate(BaseModel):
     source_url: str | None = None
 
 
+
+def _recent_amazon_price_increases(db: Session, shop_slug: str, days: int = 7):
+    """Return the latest Amazon price-increase event per product in the window.
+
+    ProductPriceHistory is written on every Amazon scan, so this survives later
+    unchanged/decrease scans and is more useful than comparing only the two
+    values stored on TikTokProduct.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    history = db.execute(
+        select(
+            ProductPriceHistory.product_id,
+            ProductPriceHistory.source_price,
+            ProductPriceHistory.checked_at,
+        )
+        .join(TikTokProduct, TikTokProduct.id == ProductPriceHistory.product_id)
+        .join(TikTokShop, TikTokShop.id == TikTokProduct.shop_id)
+        .where(
+            TikTokShop.slug == shop_slug,
+            ProductPriceHistory.status == "OK",
+            ProductPriceHistory.source_price.is_not(None),
+        )
+        .order_by(ProductPriceHistory.product_id, ProductPriceHistory.checked_at)
+    ).all()
+
+    previous = {}
+    latest_increase = {}
+    for product_id, source_price, checked_at in history:
+        price = _f(source_price)
+        prior = previous.get(product_id)
+        if (
+            prior is not None
+            and price is not None
+            and price > prior
+            and checked_at is not None
+            and checked_at >= cutoff
+        ):
+            latest_increase[product_id] = {
+                "previous_price": prior,
+                "new_price": price,
+                "increase_amount": price - prior,
+                "checked_at": checked_at,
+            }
+        if price is not None:
+            previous[product_id] = price
+    return latest_increase
+
 def _product_monitor_payload(row: TikTokProduct):
     tiktok_price = _f(row.tiktok_price)
     source_price = _f(row.source_price)
@@ -547,6 +594,7 @@ def product_monitor_products(
     q: str | None = Query(default=None),
     mapped: bool | None = Query(default=None),
     loss_only: bool = Query(default=False),
+    movement: str = Query(default="all"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -576,6 +624,9 @@ def product_monitor_products(
         .order_by(TikTokProduct.title)
     ).all()
     stats_payload = [_product_monitor_payload(row) for row in stats_rows]
+    recent_1d = _recent_amazon_price_increases(db, shop, 1)
+    recent_7d = _recent_amazon_price_increases(db, shop, 7)
+    recent_30d = _recent_amazon_price_increases(db, shop, 30)
 
     rows = db.scalars(
         select(TikTokProduct)
@@ -587,6 +638,29 @@ def product_monitor_products(
     filtered_payload = [_product_monitor_payload(row) for row in rows]
     if loss_only:
         filtered_payload = [p for p in filtered_payload if p["loss_risk"]]
+
+    recent_map = None
+    if movement == "latest_increase":
+        filtered_payload = [p for p in filtered_payload if p["source_price_change"] is not None and p["source_price_change"] > 0]
+    elif movement == "latest_decrease":
+        filtered_payload = [p for p in filtered_payload if p["source_price_change"] is not None and p["source_price_change"] < 0]
+    elif movement == "increase_1d":
+        recent_map = recent_1d
+        filtered_payload = [p for p in filtered_payload if p["id"] in recent_map]
+    elif movement == "increase_7d":
+        recent_map = recent_7d
+        filtered_payload = [p for p in filtered_payload if p["id"] in recent_map]
+    elif movement == "increase_30d":
+        recent_map = recent_30d
+        filtered_payload = [p for p in filtered_payload if p["id"] in recent_map]
+    elif movement != "all":
+        raise HTTPException(status_code=400, detail="Unsupported price movement filter")
+
+    # Attach the latest increase event when a recent-increase filter is active.
+    if recent_map is not None:
+        for payload_row in filtered_payload:
+            payload_row["recent_increase"] = recent_map.get(payload_row["id"])
+
     filtered_total = len(filtered_payload)
     total_pages = (filtered_total + page_size - 1) // page_size if filtered_total else 0
     safe_page = min(page, total_pages) if total_pages else 1
@@ -601,10 +675,13 @@ def product_monitor_products(
         "unmapped": sum(1 for p in stats_payload if not p["source_url"]),
         "price_increased": sum(1 for p in stats_payload if p["source_price_change"] is not None and p["source_price_change"] > 0),
         "price_decreased": sum(1 for p in stats_payload if p["source_price_change"] is not None and p["source_price_change"] < 0),
+        "recent_price_increases_1d": len(recent_1d),
+        "recent_price_increases_7d": len(recent_7d),
+        "recent_price_increases_30d": len(recent_30d),
         "prices_checked": sum(1 for p in stats_payload if p["source_checked_at"]),
         "source_errors": sum(1 for p in stats_payload if p["source_check_status"] in {"ERROR", "BLOCKED", "NOT_FOUND"}),
         "loss_risk": sum(1 for p in stats_payload if p["loss_risk"]),
-        "filters": {"q": q or "", "mapped": mapped, "loss_only": loss_only},
+        "filters": {"q": q or "", "mapped": mapped, "loss_only": loss_only, "movement": movement},
         "pagination": {
             "page": safe_page,
             "page_size": page_size,
@@ -656,4 +733,4 @@ def product_monitor_check_all(shop: str = Query(default="polaris-zone")):
 
 @app.get("/api/version")
 def api_version():
-    return {"version": "v16-product-monitor-loss-filter", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}
+    return {"version": "v17-product-monitor-recent-increases", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}
