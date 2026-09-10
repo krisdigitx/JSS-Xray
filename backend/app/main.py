@@ -531,6 +531,8 @@ def _product_monitor_payload(row: TikTokProduct):
         "previous_source_price": previous,
         "source_price_change": source_change,
         "price_difference": difference,
+        "loss_risk": difference is not None and difference < 0,
+        "loss_amount": abs(difference) if difference is not None and difference < 0 else None,
         "source_checked_at": row.source_checked_at,
         "source_check_status": row.source_check_status or ("UNMAPPED" if not row.source_url else "PENDING"),
         "source_check_message": row.source_check_message,
@@ -544,6 +546,7 @@ def product_monitor_products(
     shop: str = Query(default="polaris-zone"),
     q: str | None = Query(default=None),
     mapped: bool | None = Query(default=None),
+    loss_only: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -582,6 +585,8 @@ def product_monitor_products(
         .order_by(TikTokProduct.title)
     ).all()
     filtered_payload = [_product_monitor_payload(row) for row in rows]
+    if loss_only:
+        filtered_payload = [p for p in filtered_payload if p["loss_risk"]]
     filtered_total = len(filtered_payload)
     total_pages = (filtered_total + page_size - 1) // page_size if filtered_total else 0
     safe_page = min(page, total_pages) if total_pages else 1
@@ -598,7 +603,8 @@ def product_monitor_products(
         "price_decreased": sum(1 for p in stats_payload if p["source_price_change"] is not None and p["source_price_change"] < 0),
         "prices_checked": sum(1 for p in stats_payload if p["source_checked_at"]),
         "source_errors": sum(1 for p in stats_payload if p["source_check_status"] in {"ERROR", "BLOCKED", "NOT_FOUND"}),
-        "filters": {"q": q or "", "mapped": mapped},
+        "loss_risk": sum(1 for p in stats_payload if p["loss_risk"]),
+        "filters": {"q": q or "", "mapped": mapped, "loss_only": loss_only},
         "pagination": {
             "page": safe_page,
             "page_size": page_size,
@@ -650,4 +656,4 @@ def product_monitor_check_all(shop: str = Query(default="polaris-zone")):
 
 @app.get("/api/version")
 def api_version():
-    return {"version": "v15-tiktok-note-price-last-resort", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}
+    return {"version": "v16-product-monitor-loss-filter", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}

@@ -8,20 +8,22 @@ const money = v => v == null ? "—" : `£${Number(v).toFixed(2)}`;
 const date = v => v ? new Date(v).toLocaleString("en-GB", {dateStyle:"medium", timeStyle:"short"}) : "Never";
 
 export default function ProductMonitorPage() {
-  const [productMonitor, setProductMonitor] = useState({total:0,filtered_total:0,mapped:0,unmapped:0,price_increased:0,price_decreased:0,prices_checked:0,source_errors:0,items:[],pagination:{page:1,page_size:PAGE_SIZE,total:0,total_pages:0,has_previous:false,has_next:false}});
+  const [productMonitor, setProductMonitor] = useState({total:0,filtered_total:0,mapped:0,unmapped:0,price_increased:0,price_decreased:0,prices_checked:0,source_errors:0,loss_risk:0,items:[],pagination:{page:1,page_size:PAGE_SIZE,total:0,total_pages:0,has_previous:false,has_next:false}});
   const [productBusy, setProductBusy] = useState(false);
   const [productMessage, setProductMessage] = useState("");
   const [error, setError] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [profitFilter, setProfitFilter] = useState("all");
 
-  async function loadProductMonitor(page=1, query=searchQuery, filter=sourceFilter) {
+  async function loadProductMonitor(page=1, query=searchQuery, filter=sourceFilter, profit=profitFilter) {
     setError("");
     const params = new URLSearchParams({shop:"polaris-zone",page:String(page),page_size:String(PAGE_SIZE)});
     if (query.trim()) params.set("q", query.trim());
     if (filter === "missing") params.set("mapped", "false");
     if (filter === "mapped") params.set("mapped", "true");
+    if (profit === "loss") params.set("loss_only", "true");
     const r = await fetch(`${API}/api/product-monitor/products?${params}`, {cache:"no-store"});
     if (!r.ok) throw new Error(`Product Price Monitor API failed (${r.status})`);
     setProductMonitor(await r.json());
@@ -30,24 +32,29 @@ export default function ProductMonitorPage() {
     e?.preventDefault();
     const query = searchInput.trim();
     setSearchQuery(query);
-    loadProductMonitor(1, query, sourceFilter).catch(e=>setError(e.message || "Failed to search products"));
+    loadProductMonitor(1, query, sourceFilter, profitFilter).catch(e=>setError(e.message || "Failed to search products"));
   }
   function changeSourceFilter(value) {
     setSourceFilter(value);
-    loadProductMonitor(1, searchQuery, value).catch(e=>setError(e.message || "Failed to filter products"));
+    loadProductMonitor(1, searchQuery, value, profitFilter).catch(e=>setError(e.message || "Failed to filter products"));
+  }
+  function changeProfitFilter(value) {
+    setProfitFilter(value);
+    loadProductMonitor(1, searchQuery, sourceFilter, value).catch(e=>setError(e.message || "Failed to filter products"));
   }
   function clearFilters() {
     setSearchInput("");
     setSearchQuery("");
     setSourceFilter("all");
-    loadProductMonitor(1, "", "all").catch(e=>setError(e.message || "Failed to load product monitor"));
+    setProfitFilter("all");
+    loadProductMonitor(1, "", "all", "all").catch(e=>setError(e.message || "Failed to load product monitor"));
   }
   async function syncProducts() {
     setProductBusy(true); setProductMessage(""); setError("");
     try {
       const r = await fetch(`${API}/api/product-monitor/sync-products?shop=polaris-zone`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      const result = await r.json(); await loadProductMonitor(1, searchQuery, sourceFilter);
+      const result = await r.json(); await loadProductMonitor(1, searchQuery, sourceFilter, profitFilter);
       setProductMessage(`Product catalogue synced: ${result.products || 0} active Polaris Zone products.`);
     } catch(e) { setError(`Product sync failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
@@ -56,7 +63,7 @@ export default function ProductMonitorPage() {
     try {
       const r = await fetch(`${API}/api/product-monitor/products/${product.id}/check`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      await loadProductMonitor(productMonitor.pagination?.page || 1, searchQuery, sourceFilter); setProductMessage(`Amazon price checked for ${product.title}.`);
+      await loadProductMonitor(productMonitor.pagination?.page || 1, searchQuery, sourceFilter, profitFilter); setProductMessage(`Amazon price checked for ${product.title}.`);
     } catch(e) { setError(`Price check failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
   async function checkAllProductSources() {
@@ -64,20 +71,20 @@ export default function ProductMonitorPage() {
     try {
       const r = await fetch(`${API}/api/product-monitor/check?shop=polaris-zone`, {method:"POST"});
       if (!r.ok) throw new Error(await r.text());
-      const result = await r.json(); await loadProductMonitor(productMonitor.pagination?.page || 1, searchQuery, sourceFilter);
+      const result = await r.json(); await loadProductMonitor(productMonitor.pagination?.page || 1, searchQuery, sourceFilter, profitFilter);
       setProductMessage(`Amazon scan complete: ${result.ok || 0}/${result.checked || 0} mapped products checked successfully.`);
     } catch(e) { setError(`Amazon scan failed: ${e.message || e}`); } finally { setProductBusy(false); }
   }
   function go(page) {
     const pagination=productMonitor.pagination || {};
     if (page < 1 || page > (pagination.total_pages || 0)) return;
-    loadProductMonitor(page, searchQuery, sourceFilter).catch(e=>setError(e.message || "Failed to load product monitor"));
+    loadProductMonitor(page, searchQuery, sourceFilter, profitFilter).catch(e=>setError(e.message || "Failed to load product monitor"));
     window.scrollTo({top:0,behavior:"smooth"});
   }
-  useEffect(() => { loadProductMonitor(1, "", "all").catch(e=>setError(e.message || "Failed to load product monitor")); }, []);
+  useEffect(() => { loadProductMonitor(1, "", "all", "all").catch(e=>setError(e.message || "Failed to load product monitor")); }, []);
 
   const pagination=productMonitor.pagination || {page:1,total_pages:0,total:0,has_previous:false,has_next:false};
-  const filtersActive=Boolean(searchQuery || sourceFilter !== "all");
+  const filtersActive=Boolean(searchQuery || sourceFilter !== "all" || profitFilter !== "all");
 
   return <main>
     <nav className="app-nav"><Link href="/">Orders dashboard</Link><Link className="active" href="/product-monitor">Product price monitor</Link></nav>
@@ -94,6 +101,7 @@ export default function ProductMonitorPage() {
       <div className="metric positive"><small>Amazon price decreased</small><strong>{productMonitor.price_decreased || 0}</strong><span>Since previous check</span></div>
       <div className={`metric ${productMonitor.source_errors?"negative":""}`}><small>Check problems</small><strong>{productMonitor.source_errors || 0}</strong><span>Blocked / unavailable / errors</span></div>
       <div className="metric"><small>Prices checked</small><strong>{productMonitor.prices_checked || 0}</strong><span>Products with scan history</span></div>
+      <div className={`metric ${productMonitor.loss_risk?"negative":""}`}><small>Loss in profit</small><strong>{productMonitor.loss_risk || 0}</strong><span>Amazon cost is above TikTok price</span></div>
     </section>
 
     {productMessage && <div className="product-monitor-message">{productMessage}</div>}
@@ -112,14 +120,18 @@ export default function ProductMonitorPage() {
           <option value="missing">Missing Seller SKU source</option>
           <option value="mapped">Has Seller SKU source</option>
         </select>
+        <select value={profitFilter} onChange={e=>changeProfitFilter(e.target.value)} disabled={productBusy} aria-label="Filter by profitability">
+          <option value="all">All profit statuses</option>
+          <option value="loss">Loss in profit</option>
+        </select>
         {filtersActive && <button className="attention" type="button" onClick={clearFilters} disabled={productBusy}>Clear filters</button>}
       </form>
 
       {(productMonitor.items || []).length === 0 ? <div className="empty">{filtersActive ? <>No products match the current search/filter.</> : <>No product catalogue imported yet. Click <strong>Sync products</strong>.</>}</div> :
       <div className="product-monitor-list">{(productMonitor.items || []).map(p=>{
         const sourceDelta=p.source_price_change; const spread=p.price_difference;
-        return <article className="product-monitor-card" key={p.id}>
-          <div className="product-monitor-title"><div><strong>{p.title}</strong><small>TikTok #{p.tiktok_product_id}</small></div><span className={`source-status ${(p.source_check_status||"unmapped").toLowerCase()}`}>{p.source_check_status || "UNMAPPED"}</span></div>
+        return <article className={`product-monitor-card ${p.loss_risk?"loss-risk-card":""}`} key={p.id}>
+          <div className="product-monitor-title"><div><strong>{p.title}</strong><small>TikTok #{p.tiktok_product_id}</small></div><div className="product-status-badges">{p.loss_risk&&<span className="loss-risk-badge">LOSS RISK · {money(p.loss_amount)}</span>}<span className={`source-status ${(p.source_check_status||"unmapped").toLowerCase()}`}>{p.source_check_status || "UNMAPPED"}</span></div></div>
           <div className="product-monitor-grid">
             <div><small>TikTok price</small><strong>{money(p.tiktok_price)}</strong></div>
             <div><small>Amazon current price</small><strong>{money(p.source_price)}</strong></div>
