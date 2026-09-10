@@ -650,4 +650,4 @@ def product_monitor_check_all(shop: str = Query(default="polaris-zone")):
 
 @app.get("/api/version")
 def api_version():
-    return {"version": "v14-gmail-tiktok-reconciliation", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}
+    return {"version": "v15-tiktok-note-price-last-resort", "finance_sort_field": "order_create_time", "product_price_monitor": "polaris-zone", "product_source": "seller_sku"}

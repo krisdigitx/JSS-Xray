@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 AMAZON_ORDER_RE = re.compile(r"(?:Order\s*#?\s*)?(\d{3}-\d{7}-\d{7})", re.I)
+TIKTOK_NOTE_PRICE_RE = re.compile(r"(?:^|\n)\s*Price\s*:\s*£?\s*([0-9]+(?:\.[0-9]{1,2})?)\b", re.I)
 
 
 def parse_amazon_order_id(text: str | None) -> str | None:
@@ -17,6 +18,25 @@ def parse_amazon_order_id(text: str | None) -> str | None:
         return None
     match = AMAZON_ORDER_RE.search(text)
     return match.group(1) if match else None
+
+
+def parse_tiktok_note_price(text: str | None) -> Decimal | None:
+    """Parse the explicit `Price:` value from a TikTok seller note.
+
+    This value is a last-resort Amazon purchase-cost fallback only. It must
+    never be used unless Gmail connectivity is healthy and an exact Gmail
+    search for the referenced Amazon order ID completed successfully with no
+    matching messages.
+    """
+    if not text:
+        return None
+    match = TIKTOK_NOTE_PRICE_RE.search(text)
+    if not match:
+        return None
+    try:
+        return Decimal(match.group(1))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def money(value: Any) -> Decimal | None:

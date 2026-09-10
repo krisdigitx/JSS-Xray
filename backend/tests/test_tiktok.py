@@ -1,4 +1,4 @@
-from app.tiktok import TikTokClient, money, parse_amazon_order_id, sign_request
+from app.tiktok import TikTokClient, money, parse_amazon_order_id, parse_tiktok_note_price, sign_request
 
 
 def test_parse_amazon_order_id_from_note():
@@ -55,3 +55,12 @@ def test_finance_amount_does_not_use_settlement_as_estimate():
     estimated, settled, _ = _finance_amount({"settlement_amount": "12.38"})
     assert estimated is None
     assert str(settled) == "12.38"
+
+
+def test_parse_tiktok_note_price():
+    assert str(parse_tiktok_note_price("Order # 205-6685933-5925163\nPrice: £3.22")) == "3.22"
+
+
+def test_parse_tiktok_note_price_is_explicit_only():
+    assert parse_tiktok_note_price("Order # 205-6685933-5925163 Total: £3.22") is None
+    assert parse_tiktok_note_price("Order # 205-6685933-5925163") is None

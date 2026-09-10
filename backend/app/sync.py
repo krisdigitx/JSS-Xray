@@ -7,6 +7,7 @@ from .db import SessionLocal
 from .gmail import list_message_ids, list_message_ids_for_order, read_message
 from .models import AmazonAccount, Order, OrderEvent, OrderItem, TikTokOrder, TikTokShop
 from .parser import parse_amazon_email
+from .tiktok import parse_tiktok_note_price
 
 
 def _decode(data: str) -> str:
@@ -221,6 +222,74 @@ def _link_tiktok_orders(db, account: AmazonAccount) -> int:
             linked += 1
     return linked
 
+def _apply_tiktok_note_fallbacks(db, account: AmazonAccount, gmail_not_found_refs: set[str]) -> int:
+    """Use TikTok note Price only after Gmail proved the order is absent.
+
+    Safety rules:
+    - The normal Gmail list call must already have succeeded, otherwise
+      sync_orders aborts before this helper can run.
+    - A reference is eligible only when its exact targeted Gmail lookup
+      succeeded and returned zero candidate messages.
+    - If an Amazon order was found/created by any Gmail message during this
+      sync, no fallback is created.
+    - A missing/unparseable TikTok `Price:` leaves the order unmatched.
+
+    Synthetic rows use status `tiktok_note_fallback`. If Gmail later finds the
+    real Amazon email, the existing sync path enriches this same order row with
+    Gmail data and replaces the fallback total/status.
+    """
+    if not gmail_not_found_refs:
+        return 0
+
+    rows = db.scalars(
+        select(TikTokOrder)
+        .join(TikTokShop, TikTokOrder.shop_id == TikTokShop.id)
+        .where(
+            TikTokShop.slug == account.slug,
+            TikTokOrder.amazon_order_db_id.is_(None),
+            TikTokOrder.amazon_order_id_ref.in_(gmail_not_found_refs),
+        )
+        .order_by(TikTokOrder.update_time.desc().nullslast(), TikTokOrder.id.desc())
+    ).all()
+
+    created = 0
+    for row in rows:
+        amazon_order_id = row.amazon_order_id_ref
+        if not amazon_order_id:
+            continue
+
+        # Another Gmail message in the normal scan may have created the order
+        # even when the targeted lookup returned no candidates. Prefer Gmail.
+        order = db.scalar(
+            select(Order).where(
+                Order.account_id == account.id,
+                Order.amazon_order_id == amazon_order_id,
+            )
+        )
+        if order:
+            row.amazon_order_db_id = order.id
+            continue
+
+        note_price = parse_tiktok_note_price(row.seller_note)
+        if note_price is None:
+            continue
+
+        order = Order(
+            account_id=account.id,
+            amazon_order_id=amazon_order_id,
+            order_date=row.create_time,
+            status="tiktok_note_fallback",
+            order_total=note_price,
+            currency=row.currency or "GBP",
+        )
+        db.add(order)
+        db.flush()
+        row.amazon_order_db_id = order.id
+        created += 1
+
+    return created
+
+
 def sync_orders(max_results=None):
     processed = skipped = enriched = price_enriched = 0
     touched_order_ids = set()
@@ -255,11 +324,21 @@ def sync_orders(max_results=None):
         # Gmail; the TikTok note's Price value is never used as purchase cost.
         unmatched_refs = _unmatched_tiktok_refs(db, account.slug, limit=25)
         targeted_ids = []
+        gmail_not_found_refs: set[str] = set()
+        targeted_lookup_failures = 0
         for amazon_order_id in unmatched_refs:
             try:
-                targeted_ids.extend(list_message_ids_for_order(amazon_order_id, max_results=10))
+                order_message_ids = list_message_ids_for_order(amazon_order_id, max_results=10)
+                targeted_ids.extend(order_message_ids)
+                if not order_message_ids:
+                    # Eligibility for TikTok-note fallback is recorded only
+                    # after this exact Gmail lookup succeeds with zero results.
+                    gmail_not_found_refs.add(amazon_order_id)
             except Exception as exc:
-                print({"account": account.slug, "targeted_order": amazon_order_id, "gmail_lookup_warning": str(exc)}, flush=True)
+                # Do NOT mark this reference as Gmail-not-found. A connectivity,
+                # auth, quota or API error must never trigger note-price fallback.
+                targeted_lookup_failures += 1
+                print({"account": account.slug, "targeted_order": amazon_order_id, "gmail_lookup_warning": str(exc), "tiktok_note_fallback_allowed": False}, flush=True)
 
         # Preserve order and remove duplicates. Targeted reconciliation messages
         # are prioritised, followed by the normal recent scan and price backfill.
@@ -355,6 +434,11 @@ def sync_orders(max_results=None):
             if order:
                 _refresh_order_status(db, order)
 
+        # Last resort only: if Gmail itself is healthy and an exact targeted
+        # lookup successfully proved that a referenced Amazon order is absent
+        # from this mailbox, use the explicit TikTok seller-note Price.
+        note_fallback_orders = _apply_tiktok_note_fallbacks(db, account, gmail_not_found_refs)
+
         tiktok_linked = _link_tiktok_orders(db, account)
         db.commit()
 
@@ -367,6 +451,9 @@ def sync_orders(max_results=None):
         "backfill_candidates": len(backfill_ids),
         "unmatched_tiktok_refs": len(unmatched_refs),
         "targeted_gmail_candidates": len(targeted_ids),
+        "targeted_gmail_not_found": len(gmail_not_found_refs),
+        "targeted_gmail_failures": targeted_lookup_failures,
+        "tiktok_note_fallback_orders": note_fallback_orders,
         "messages_checked": len(message_ids),
         "price_enriched": price_enriched,
         "tiktok_linked": tiktok_linked,
