@@ -192,7 +192,7 @@ Gmail message IDs are stored to make ingestion idempotent.
 
 ## TikTok Shop + Amazon profitability (v2)
 
-JSS XRay can now reconcile TikTok Shop orders with Amazon purchases. The TikTok order note is inspected for an Amazon order ID in the form `123-1234567-1234567`; the matching Amazon purchase cost remains sourced exclusively from Amazon Gmail emails. TikTok finance APIs provide estimated or settled earnings, so estimated profit is `TikTok earnings - Gmail-derived Amazon purchase cost`.
+JSS XRay can now reconcile TikTok Shop orders with Amazon purchases. The TikTok order note is inspected for an Amazon order ID in the form `123-1234567-1234567`; the matching Amazon purchase cost uses the Gmail price when nonzero, otherwise the explicit `Price:` from the TikTok seller note. The note price is the whole-order cost and is not multiplied by quantity. TikTok finance APIs provide estimated or settled earnings, so estimated profit is `TikTok earnings - effective Amazon purchase cost`.
 
 The first enabled TikTok integration is **Polaris Zone**. Configure the Kubernetes secret `jss-xray-tiktok-polaris-zone` with `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET`, and either an existing access/refresh token pair or complete the seller OAuth callback at `/api/tiktok/oauth/callback`. Optional keys are `TIKTOK_SHOP_CIPHER` and `TIKTOK_OAUTH_STATE`. The Helm chart runs TikTok sync every 15 minutes by default.
 

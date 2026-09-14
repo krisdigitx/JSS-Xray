@@ -6,14 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import Numeric, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
 from .db import get_db
 from .models import AmazonAccount, Order, OrderItem, ProductPriceHistory, TikTokOrder, TikTokProduct, TikTokShop
 from .sync import sync_orders
-from .tiktok import TikTokClient, exchange_auth_code
+from .tiktok import TikTokClient, exchange_auth_code, parse_tiktok_note_price
 from .tiktok_sync import sync_tiktok_orders
 from .product_monitor import check_mapped_products, check_product_source, extract_asin, sync_tiktok_products
 
@@ -41,10 +41,21 @@ def _f(value):
     return float(value) if value is not None else None
 
 
-def _amazon_cost(order: Order | None):
-    if not order:
-        return None
-    return _f(order.order_total)
+def _purchase_cost(row: TikTokOrder):
+    """Prefer a nonzero Gmail cost; otherwise use the note's order-level Price."""
+    cost = row.amazon_order.order_total if row.amazon_order else None
+    if cost not in (None, 0):
+        return cost
+    return parse_tiktok_note_price(row.seller_note)
+
+
+def _purchase_cost_expression():
+    # PostgreSQL substring returns the first capture, or NULL when absent.
+    note_price = cast(func.substring(
+        TikTokOrder.seller_note,
+        r"(?i)(?:^|\n)\s*Price\s*:\s*£?\s*([0-9]+(?:\.[0-9]{1,2})?)(?![0-9A-Za-z_])",
+    ), Numeric())
+    return func.coalesce(func.nullif(Order.order_total, 0), note_price)
 
 
 def _effective_earnings_value(row: TikTokOrder):
@@ -78,7 +89,7 @@ def _earnings(row: TikTokOrder):
 def _profit(row: TikTokOrder):
     # Estimated profit = effective TikTok earnings - actual Amazon purchase cost.
     earnings, _ = _effective_earnings_value(row)
-    cost = row.amazon_order.order_total if row.amazon_order else None
+    cost = _purchase_cost(row)
     if earnings is None or cost is None:
         return None
     return float(Decimal(earnings) - Decimal(cost))
@@ -109,10 +120,11 @@ def _tiktok_order_payload(row: TikTokOrder):
             "amazon_order_id": amazon.amazon_order_id,
             "status": amazon.status,
             "order_date": amazon.order_date,
-            "purchase_cost": _amazon_cost(amazon),
+            "purchase_cost": _f(_purchase_cost(row)),
             "currency": amazon.currency,
             "account": {"slug": amazon.account.slug, "name": amazon.account.name},
         },
+        "purchase_cost": _f(_purchase_cost(row)),
         "estimated_profit": _profit(row),
     }
 
@@ -224,7 +236,7 @@ def dashboard(
         ),
     )
     customer_paid_expr = func.coalesce(TikTokOrder.customer_paid_amount, 0)
-    cost_expr = func.coalesce(Order.order_total, 0)
+    cost_expr = _purchase_cost_expression()
     tt_totals_stmt = (
         select(
             TikTokShop.slug,
@@ -235,7 +247,7 @@ def dashboard(
             func.coalesce(func.sum(customer_paid_expr), 0).label("customer_paid"),
             func.coalesce(func.sum(earning_expr), 0).label("earnings"),
             func.coalesce(func.sum(cost_expr), 0).label("amazon_cost"),
-            func.coalesce(func.sum(case((TikTokOrder.amazon_order_db_id.is_not(None), earning_expr - cost_expr), else_=0)), 0).label("profit"),
+            func.coalesce(func.sum(earning_expr - cost_expr), 0).label("profit"),
             func.coalesce(func.sum(TikTokOrder.refund_amount), 0).label("refunds"),
             func.sum(case((TikTokOrder.status.in_(AWAITING_SHIPMENT_STATUSES), 1), else_=0)).label("awaiting_shipment"),
             func.sum(case((TikTokOrder.status.in_(DELIVERED_STATUSES), 1), else_=0)).label("delivered"),
@@ -276,7 +288,7 @@ def dashboard(
             func.coalesce(func.sum(customer_paid_expr), 0).label("customer_paid"),
             func.coalesce(func.sum(earning_expr), 0).label("earnings"),
             func.coalesce(func.sum(cost_expr), 0).label("amazon_cost"),
-            func.coalesce(func.sum(case((TikTokOrder.amazon_order_db_id.is_not(None), earning_expr - cost_expr), else_=0)), 0).label("profit"),
+            func.coalesce(func.sum(earning_expr - cost_expr), 0).label("profit"),
             func.coalesce(func.sum(TikTokOrder.refund_amount), 0).label("refunds"),
             func.sum(case((TikTokOrder.status.in_(AWAITING_SHIPMENT_STATUSES), 1), else_=0)).label("awaiting_shipment"),
             func.sum(case((TikTokOrder.status.in_(DELIVERED_STATUSES), 1), else_=0)).label("delivered"),
