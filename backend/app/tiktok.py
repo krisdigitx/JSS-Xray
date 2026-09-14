@@ -23,10 +23,8 @@ def parse_amazon_order_id(text: str | None) -> str | None:
 def parse_tiktok_note_price(text: str | None) -> Decimal | None:
     """Parse the explicit `Price:` value from a TikTok seller note.
 
-    This value is a last-resort Amazon purchase-cost fallback only. It must
-    never be used unless Gmail connectivity is healthy and an exact Gmail
-    search for the referenced Amazon order ID completed successfully with no
-    matching messages.
+    This is an order-level purchase-cost fallback when Gmail has no nonzero
+    price. It is not a unit price and must not be multiplied by quantity.
     """
     if not text:
         return None
