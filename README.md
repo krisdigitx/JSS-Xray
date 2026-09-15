@@ -213,8 +213,8 @@ Before deploying, provision these Kubernetes secrets with each shop's own
 `TIKTOK_SHOP_CIPHER` when available):
 
 - `jss-xray-tiktok-polaris-zone`
-- `jss-xray-tiktok-tauri-royale`
-- `jss-xray-tiktok-jss-traders`
+- `jss-xray-secrets`
+- `jss-xray-jss-traders`
 
 The API imports Tauri Royale and JSS Traders credentials with `TAURI_ROYALE_`
 and `JSS_TRADERS_` prefixes respectively; their CronJobs use unprefixed credentials

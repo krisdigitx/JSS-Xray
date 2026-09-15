@@ -77,11 +77,11 @@ tiktokShops:
   - slug: tauri-royale
     name: Tauri Royale
     enabled: true
-    secretName: jss-xray-tiktok-tauri-royale
+    secretName: jss-xray-secrets
   - slug: jss-traders
     name: JSS Traders
     enabled: true
-    secretName: jss-xray-tiktok-jss-traders
+    secretName: jss-xray-jss-traders
 
 productMonitor:
   enabled: true
