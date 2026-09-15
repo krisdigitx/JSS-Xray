@@ -15,6 +15,7 @@ export default function Home() {
   const [dashboard, setDashboard] = useState({tiktok_totals:[], tiktok_monthly:[], sync_status:[]});
   const [q, setQ] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
+  const [orderStatus, setOrderStatus] = useState("all");
   const [attentionOnly, setAttentionOnly] = useState(false);
   const [pagination, setPagination] = useState({page:1,page_size:PAGE_SIZE,total:0,total_pages:0,has_previous:false,has_next:false});
   const [loading, setLoading] = useState(false);
@@ -33,10 +34,10 @@ export default function Home() {
     setDashboard(await r.json());
   }
 
-  async function loadOrders(search=activeSearch, page=1, selectedShop=shop, attention=attentionOnly) {
+  async function loadOrders(search=activeSearch, page=1, selectedShop=shop, attention=attentionOnly, status=orderStatus) {
     setLoading(true); setError("");
     try {
-      const params = new URLSearchParams({page:String(page),page_size:String(PAGE_SIZE),shop:selectedShop,attention_only:String(attention)});
+      const params = new URLSearchParams({page:String(page),page_size:String(PAGE_SIZE),shop:selectedShop,attention_only:String(attention),status});
       if (search) params.set("q", search);
       const r = await fetch(`${API}/api/tiktok/orders?${params}`, {cache:"no-store"});
       if (!r.ok) throw new Error(`TikTok orders API failed (${r.status})`);
@@ -72,6 +73,7 @@ export default function Home() {
 
   function submitSearch(e){e.preventDefault();const s=q.trim();setActiveSearch(s);loadOrders(s,1,shop,attentionOnly)}
   function changeShop(e){const s=e.target.value;setShop(s);loadDashboard(s);loadOrders(activeSearch,1,s,attentionOnly)}
+  function changeStatus(e){const status=e.target.value;setOrderStatus(status);loadOrders(activeSearch,1,shop,attentionOnly,status)}
   function toggleAttention(){const v=!attentionOnly;setAttentionOnly(v);loadOrders(activeSearch,1,shop,v)}
   function go(page){if(page<1||page>pagination.total_pages)return;loadOrders(activeSearch,page,shop,attentionOnly);window.scrollTo({top:0,behavior:"smooth"})}
 
@@ -132,7 +134,17 @@ export default function Home() {
 
     <section className="orders-section">
       <div className="section-head"><div><h2>TikTok orders</h2><p>{pagination.total || 0} orders in this view.</p></div>
-        <button className={attentionOnly?"attention active":"attention"} onClick={toggleAttention}>{attentionOnly?"Showing attention only":"Show unmatched only"}</button>
+        <div className="order-filters">
+          <label htmlFor="order-status">Status</label>
+          <select id="order-status" value={orderStatus} onChange={changeStatus} disabled={loading}>
+            <option value="all">All statuses</option>
+            <option value="awaiting_shipment">Awaiting Shipment</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="completed">Completed</option>
+          </select>
+          <button className={attentionOnly?"attention active":"attention"} onClick={toggleAttention} aria-pressed={attentionOnly} disabled={loading} title="Orders without an Amazon match">{attentionOnly?"Showing attention only":"Show attention"}</button>
+        </div>
       </div>
       <form className="search" onSubmit={submitSearch}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="TikTok order, Amazon order, product or note…"/><button disabled={loading}>{loading?"Loading…":"Search"}</button></form>
       {error && <div className="error"><strong>Error:</strong> {error}</div>}

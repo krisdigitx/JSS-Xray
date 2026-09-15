@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -414,6 +415,7 @@ def orders(
 
 @app.get("/api/tiktok/orders")
 def tiktok_orders(
+    status: Literal["all", "awaiting_shipment", "delivered", "cancelled", "completed"] = Query(default="all"),
     q: str | None = Query(default=None),
     shop: str | None = Query(default=None),
     attention_only: bool = Query(default=False),
@@ -424,6 +426,14 @@ def tiktok_orders(
     filters = []
     if shop and shop != "all":
         filters.append(TikTokShop.slug == shop)
+    status_groups = {
+        "awaiting_shipment": AWAITING_SHIPMENT_STATUSES,
+        "delivered": {"DELIVERED"},
+        "cancelled": CANCELLED_STATUSES,
+        "completed": {"COMPLETED"},
+    }
+    if status != "all":
+        filters.append(TikTokOrder.status.in_(status_groups[status]))
     if attention_only:
         filters.append(TikTokOrder.amazon_order_db_id.is_(None))
     if q:
