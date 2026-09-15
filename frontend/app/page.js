@@ -4,6 +4,7 @@ import Link from "next/link";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "";
 const PAGE_SIZE = 25;
+const SHOP_OPTIONS = [{slug:"polaris-zone",name:"Polaris Zone"},{slug:"tauri-royale",name:"Tauri Royale"},{slug:"jss-traders",name:"JSS Traders"}];
 const money = v => v == null ? "—" : `£${Number(v).toFixed(2)}`;
 const date = v => v ? new Date(v).toLocaleString("en-GB", {dateStyle:"medium", timeStyle:"short"}) : "Never";
 const day = v => v ? new Date(v).toLocaleDateString("en-GB", {timeZone:"Europe/London"}) : "—";
@@ -62,12 +63,14 @@ export default function Home() {
   async function syncNow() {
     setSyncing(true); setError("");
     try {
-      const r = await fetch(`${API}/api/tiktok/sync`, {method:"POST"});
+      const r = await fetch(`${API}/api/tiktok/sync?shop=${encodeURIComponent(shop)}`, {method:"POST"});
       if (!r.ok) { const body = await r.text(); throw new Error(`TikTok sync failed (${r.status}): ${body}`); }
       await reloadAll(shop, attentionOnly);
     } catch(e) { setError(e.message || "TikTok sync failed"); }
     finally { setSyncing(false); }
   }
+
+  const selectedShopName = SHOP_OPTIONS.find(s=>s.slug===shop)?.name || shops.find(s=>s.slug===shop)?.name || shop;
 
   const aggregate = useMemo(() => (dashboard.tiktok_totals || []).reduce((a,x)=>({
     orders:a.orders+(x.orders||0), matched:a.matched+(x.matched||0), unmatched:a.unmatched+(x.unmatched||0),
@@ -77,7 +80,7 @@ export default function Home() {
   }), {orders:0,matched:0,unmatched:0,customerPaid:0,earnings:0,cost:0,profit:0,refunds:0,awaitingShipment:0,delivered:0,cancelled:0}), [dashboard]);
 
   function submitSearch(e){e.preventDefault();const s=q.trim();setActiveSearch(s);loadOrders(s,1,shop,attentionOnly)}
-  function changeShop(e){const s=e.target.value;setShop(s);loadDashboard(s);loadOrders(activeSearch,1,s,attentionOnly)}
+  function changeShop(e){const s=e.target.value;setShop(s);loadDashboard(s).catch(e=>setError(e.message));loadOrders(activeSearch,1,s,attentionOnly)}
   function changeStatus(e){const status=e.target.value;setOrderStatus(status);loadOrders(activeSearch,1,shop,attentionOnly,status)}
   function changeDates(from, to){
     setDateFrom(from); setDateTo(to);
@@ -90,7 +93,8 @@ export default function Home() {
     <nav className="app-nav"><Link className="active" href="/">Orders dashboard</Link><Link href="/product-monitor">Product price monitor</Link></nav>
     <header className="hero">
       <div><h1>JSS XRay</h1><p>TikTok Shop profitability and Amazon fulfilment reconciliation.</p></div>
-      <button className="sync-button" onClick={syncNow} disabled={syncing}>{syncing?"Synchronising…":"Sync TikTok now"}</button>
+      <div className="shop-controls"><label className="order-field">TikTok shop<select value={shop} onChange={changeShop} disabled={loading || syncing}>{SHOP_OPTIONS.map(s=><option key={s.slug} value={s.slug}>{s.name}</option>)}</select></label>
+      <button className="sync-button" onClick={syncNow} disabled={syncing}>{syncing?"Synchronising…":"Sync TikTok now"}</button></div>
     </header>
 
     <section className="sync-strip">
@@ -111,17 +115,17 @@ export default function Home() {
     </section>
 
     <section className="fulfilment-status">
-      <div className="section-head"><div><h2>Order status</h2><p>Current Polaris Zone TikTok fulfilment status.</p></div></div>
+      <div className="section-head"><div><h2>Order status</h2><p>Current {selectedShopName} TikTok fulfilment status.</p></div></div>
       <div className="status-grid">
         <div className="status-card awaiting"><small>Awaiting shipment</small><strong>{aggregate.awaitingShipment}</strong><span>Orders not shipped yet</span></div>
         <div className="status-card delivered"><small>Delivered</small><strong>{aggregate.delivered}</strong><span>Delivered / completed orders</span></div>
         <div className="status-card cancelled"><small>Cancelled</small><strong>{aggregate.cancelled}</strong><span>Cancelled orders</span></div>
-        <div className="status-card"><small>Total orders</small><strong>{aggregate.orders}</strong><span>Polaris Zone orders</span></div>
+        <div className="status-card"><small>Total orders</small><strong>{aggregate.orders}</strong><span>{selectedShopName} orders</span></div>
       </div>
     </section>
 
     <section className="shop-totals">
-      <div className="section-head"><div><h2>Shop totals</h2><p>Current totals for Polaris Zone.</p></div></div>
+      <div className="section-head"><div><h2>Shop totals</h2><p>Current totals for {selectedShopName}.</p></div></div>
       <div className="shop-grid">{(dashboard.tiktok_totals||[]).map(s=><article key={s.slug}>
         <h3>{s.name}</h3><div><span>Orders</span><b>{s.orders}</b></div><div><span>Unmatched</span><b className={s.unmatched?"bad":""}>{s.unmatched}</b></div>
         <div><span>Awaiting shipment</span><b>{s.awaiting_shipment}</b></div><div><span>Delivered</span><b className="good">{s.delivered}</b></div>
@@ -142,26 +146,36 @@ export default function Home() {
     </section>
 
     <section className="orders-section">
-      <div className="section-head"><div><h2>TikTok orders</h2><p>{pagination.total || 0} orders in this view.</p></div>
-        <div className="order-filters">
-          <label htmlFor="order-status">Status</label>
-          <select id="order-status" value={orderStatus} onChange={changeStatus} disabled={loading}>
-            <option value="all">All statuses</option>
-            <option value="awaiting_shipment">Awaiting Shipment</option>
-            <option value="delivered">Delivered</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="completed">Completed</option>
-          </select>
+      <div className="section-head"><div><h2>TikTok orders</h2><p>{pagination.total || 0} orders in this view.</p></div></div>
+      <div className="order-toolbar">
+        <div className="order-filter-row">
+          <label className="order-field" htmlFor="order-status">Status
+            <select id="order-status" value={orderStatus} onChange={changeStatus} disabled={loading}>
+              <option value="all">All statuses</option>
+              <option value="awaiting_shipment">Awaiting Shipment</option>
+              <option value="in_transit">In Transit</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="completed">Completed</option>
+            </select>
+          </label>
+          <label className="order-field">From
+            <input type="date" aria-label="Order date from" aria-describedby="order-date-help" value={dateFrom} max={dateTo || "9999-12-30"} onChange={e=>changeDates(e.target.value,dateTo)} disabled={loading}/>
+          </label>
+          <label className="order-field">To
+            <input type="date" aria-label="Order date to" aria-describedby="order-date-help" value={dateTo} min={dateFrom || undefined} max="9999-12-30" onChange={e=>changeDates(dateFrom,e.target.value)} disabled={loading}/>
+          </label>
+          <button className="attention" onClick={()=>changeDates("","")} disabled={loading || (!dateFrom && !dateTo)}>Clear dates</button>
           <button className={attentionOnly?"attention active":"attention"} onClick={toggleAttention} aria-pressed={attentionOnly} disabled={loading} title="Orders without an Amazon match">{attentionOnly?"Showing attention only":"Show attention"}</button>
         </div>
+        <small id="order-date-help">Order dates · UK time · includes both dates</small>
+        <form className="search order-search" onSubmit={submitSearch}>
+          <label className="order-field" htmlFor="order-search">Search orders
+            <input id="order-search" value={q} onChange={e=>setQ(e.target.value)} placeholder="TikTok order, Amazon order, product or note…"/>
+          </label>
+          <button disabled={loading}>{loading?"Loading…":"Search"}</button>
+        </form>
       </div>
-      <div className="order-dates">
-        <label>From<input type="date" aria-label="Order date from" value={dateFrom} max={dateTo || "9999-12-30"} onChange={e=>changeDates(e.target.value,dateTo)} disabled={loading}/></label>
-        <label>To<input type="date" aria-label="Order date to" value={dateTo} min={dateFrom || undefined} max="9999-12-30" onChange={e=>changeDates(dateFrom,e.target.value)} disabled={loading}/></label>
-        <button className="attention" onClick={()=>changeDates("","")} disabled={loading || (!dateFrom && !dateTo)}>Clear dates</button>
-        <small>Order dates · UK time · includes both dates</small>
-      </div>
-      <form className="search" onSubmit={submitSearch}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="TikTok order, Amazon order, product or note…"/><button disabled={loading}>{loading?"Loading…":"Search"}</button></form>
       {error && <div className="error"><strong>Error:</strong> {error}</div>}
       {!loading && !error && orders.length===0 && <div className="empty">No TikTok orders found.</div>}
       <div className="orders-list">{orders.map(o=><article className={!o.matched?"order attention-order":"order"} key={`${o.shop.slug}-${o.tiktok_order_id}`}>

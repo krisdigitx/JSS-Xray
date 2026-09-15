@@ -17,7 +17,7 @@ def client():
         shop = TikTokShop(slug='polaris-zone', name='Polaris Zone')
         other = TikTokShop(slug='other', name='Other')
         amazon = Order(account=AmazonAccount(slug='polaris-zone', name='Polaris Zone'), amazon_order_id='123-1234567-1234567')
-        for status in ['AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'TO_SHIP', 'READY_TO_SHIP', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'CANCELED']:
+        for status in ['AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'TO_SHIP', 'READY_TO_SHIP', 'IN_TRANSIT', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'CANCELED']:
             db.add(TikTokOrder(shop=shop, tiktok_order_id=status, status=status, product_name='Snack', amazon_order=amazon if status == 'DELIVERED' else None))
         db.add(TikTokOrder(shop=other, tiktok_order_id='other', status='COMPLETED', product_name='Snack'))
         db.commit()
@@ -33,7 +33,7 @@ def client():
 
 
 @pytest.mark.parametrize('status,expected', [
-    ('all', 8), ('awaiting_shipment', 4), ('delivered', 1), ('completed', 1), ('cancelled', 2),
+    ('all', 9), ('in_transit', 1), ('awaiting_shipment', 4), ('delivered', 1), ('completed', 1), ('cancelled', 2),
 ])
 def test_status_filter_and_pagination(client, status, expected):
     response = client.get('/api/tiktok/orders', params={'shop': 'polaris-zone', 'status': status, 'page_size': 1})
@@ -42,7 +42,7 @@ def test_status_filter_and_pagination(client, status, expected):
     assert data['pagination']['total'] == expected
     assert data['pagination']['total_pages'] == expected
     assert len(data['items']) == 1
-    if status in ('delivered', 'completed'):
+    if status in ('in_transit', 'delivered', 'completed'):
         assert data['items'][0]['status'] == status.upper()
 
 
@@ -95,3 +95,12 @@ def test_inclusive_uk_date_range_and_combined_filters(client, day, start, end):
 ])
 def test_invalid_dates(client, query):
     assert client.get('/api/tiktok/orders?' + query).status_code == 422
+
+
+def test_in_transit_combines_with_attention_and_search(client):
+    params = dict(shop='polaris-zone', status='in_transit', attention_only=True, q='Snack')
+    data = client.get('/api/tiktok/orders', params=params).json()
+    assert data['pagination']['total'] == 1
+    assert data['items'][0]['status'] == 'IN_TRANSIT'
+    params['q'] = 'missing'
+    assert client.get('/api/tiktok/orders', params=params).json()['pagination']['total'] == 0

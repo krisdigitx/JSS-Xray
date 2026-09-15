@@ -18,6 +18,17 @@
 /* v16 Product Monitor loss-risk flag and filter. */
 .loss-risk-card{border-color:#fda29b;border-left:5px solid #d92d20;background:#fffafa}.product-status-badges{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.loss-risk-badge{font-size:11px;font-weight:800;border-radius:999px;padding:5px 9px;background:#fee4e2;color:#b42318;white-space:nowrap}@media(max-width:760px){.product-status-badges{justify-content:flex-start}}
 
-.order-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.order-filters label{color:#667085}.order-filters button:disabled{opacity:.5}@media(max-width:760px){.order-filters{align-items:stretch;flex-direction:column}}
+/* Order controls share label spacing, heights and responsive grid alignment. */
+.order-toolbar{margin:18px 0}
+.order-filter-row{display:grid;grid-template-columns:minmax(180px,1.3fr) repeat(2,minmax(165px,1fr)) auto auto;gap:12px;align-items:end}
+.order-field{display:flex;flex-direction:column;gap:6px;min-width:0;color:#667085;font-size:14px}
+.order-toolbar .order-field input,.order-toolbar .order-field select{width:100%;min-width:0;height:44px;padding:10px 12px;border:1px solid #d0d5dd;border-radius:10px;background:#fff;color:#18202a;font-size:16px}
+.order-toolbar button{height:44px;white-space:nowrap}
+.order-toolbar button:disabled{opacity:.5}
+.order-toolbar>small{display:block;margin-top:8px;color:#667085}
+.order-toolbar .order-search{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;margin:16px 0 0}
+.order-toolbar input:focus-visible,.order-toolbar select:focus-visible,.order-toolbar button:focus-visible{outline:2px solid #84caff;outline-offset:2px}
+@media(max-width:1000px){.order-filter-row{grid-template-columns:repeat(6,minmax(0,1fr))}.order-filter-row .order-field{grid-column:span 2}.order-filter-row>button{grid-column:span 3}}
+@media(max-width:560px){.order-filter-row{grid-template-columns:repeat(2,minmax(0,1fr))}.order-filter-row .order-field{grid-column:span 1}.order-filter-row .order-field:first-child{grid-column:1/-1}.order-filter-row>button{grid-column:1/-1}.order-toolbar .order-search{grid-template-columns:1fr}}
 
-.order-dates{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:18px}.order-dates label{display:grid;gap:6px;color:#667085}.order-dates input{padding:10px;border:1px solid #d0d5dd;border-radius:10px;background:#fff;color:#18202a}.order-dates small{color:#667085;align-self:center}.order-dates button:disabled{opacity:.5}@media(max-width:760px){.order-dates>*{width:100%}.order-dates input{min-width:0;width:100%}}
+.shop-controls{display:flex;align-items:flex-end;gap:12px}.shop-controls select{height:44px;padding:10px 12px;border:1px solid #d0d5dd;border-radius:10px;background:#fff;min-width:180px}.shop-controls button{height:44px}@media(max-width:760px){.shop-controls{flex-direction:column;align-items:stretch}}

@@ -418,7 +418,7 @@ def orders(
 def tiktok_orders(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None, lt=date.max),
-    status: Literal["all", "awaiting_shipment", "delivered", "cancelled", "completed"] = Query(default="all"),
+    status: Literal["all", "awaiting_shipment", "in_transit", "delivered", "cancelled", "completed"] = Query(default="all"),
     q: str | None = Query(default=None),
     shop: str | None = Query(default=None),
     attention_only: bool = Query(default=False),
@@ -440,6 +440,7 @@ def tiktok_orders(
         filters.append(TikTokShop.slug == shop)
     status_groups = {
         "awaiting_shipment": AWAITING_SHIPMENT_STATUSES,
+        "in_transit": {"IN_TRANSIT"},
         "delivered": {"DELIVERED"},
         "cancelled": CANCELLED_STATUSES,
         "completed": {"COMPLETED"},
@@ -536,8 +537,8 @@ def sync():
 
 
 @app.post("/api/tiktok/sync")
-def tiktok_sync():
-    return sync_tiktok_orders()
+def tiktok_sync(shop: Literal["polaris-zone", "tauri-royale", "jss-traders"] = Query(default="polaris-zone")):
+    return sync_tiktok_orders(shop)
 
 
 class ProductSourceUpdate(BaseModel):
