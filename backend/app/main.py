@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Literal
 
@@ -415,6 +416,8 @@ def orders(
 
 @app.get("/api/tiktok/orders")
 def tiktok_orders(
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None, lt=date.max),
     status: Literal["all", "awaiting_shipment", "delivered", "cancelled", "completed"] = Query(default="all"),
     q: str | None = Query(default=None),
     shop: str | None = Query(default=None),
@@ -423,7 +426,16 @@ def tiktok_orders(
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="From date must be on or before To date")
     filters = []
+    london = ZoneInfo("Europe/London")
+    if date_from:
+        start = datetime.combine(date_from, time.min, london).astimezone(timezone.utc)
+        filters.append(TikTokOrder.create_time >= start)
+    if date_to:
+        end = datetime.combine(date_to + timedelta(days=1), time.min, london).astimezone(timezone.utc)
+        filters.append(TikTokOrder.create_time < end)
     if shop and shop != "all":
         filters.append(TikTokShop.slug == shop)
     status_groups = {

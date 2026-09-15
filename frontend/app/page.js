@@ -6,7 +6,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || "";
 const PAGE_SIZE = 25;
 const money = v => v == null ? "—" : `£${Number(v).toFixed(2)}`;
 const date = v => v ? new Date(v).toLocaleString("en-GB", {dateStyle:"medium", timeStyle:"short"}) : "Never";
-const day = v => v ? new Date(v).toLocaleDateString("en-GB") : "—";
+const day = v => v ? new Date(v).toLocaleDateString("en-GB", {timeZone:"Europe/London"}) : "—";
 
 export default function Home() {
   const [shops, setShops] = useState([]);
@@ -15,6 +15,8 @@ export default function Home() {
   const [dashboard, setDashboard] = useState({tiktok_totals:[], tiktok_monthly:[], sync_status:[]});
   const [q, setQ] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [orderStatus, setOrderStatus] = useState("all");
   const [attentionOnly, setAttentionOnly] = useState(false);
   const [pagination, setPagination] = useState({page:1,page_size:PAGE_SIZE,total:0,total_pages:0,has_previous:false,has_next:false});
@@ -34,10 +36,13 @@ export default function Home() {
     setDashboard(await r.json());
   }
 
-  async function loadOrders(search=activeSearch, page=1, selectedShop=shop, attention=attentionOnly, status=orderStatus) {
+  async function loadOrders(search=activeSearch, page=1, selectedShop=shop, attention=attentionOnly, status=orderStatus, from=dateFrom, to=dateTo) {
     setLoading(true); setError("");
     try {
       const params = new URLSearchParams({page:String(page),page_size:String(PAGE_SIZE),shop:selectedShop,attention_only:String(attention),status});
+      if (from && to && from > to) throw new Error("From date must be on or before To date");
+      if (from) params.set("date_from", from);
+      if (to) params.set("date_to", to);
       if (search) params.set("q", search);
       const r = await fetch(`${API}/api/tiktok/orders?${params}`, {cache:"no-store"});
       if (!r.ok) throw new Error(`TikTok orders API failed (${r.status})`);
@@ -74,6 +79,10 @@ export default function Home() {
   function submitSearch(e){e.preventDefault();const s=q.trim();setActiveSearch(s);loadOrders(s,1,shop,attentionOnly)}
   function changeShop(e){const s=e.target.value;setShop(s);loadDashboard(s);loadOrders(activeSearch,1,s,attentionOnly)}
   function changeStatus(e){const status=e.target.value;setOrderStatus(status);loadOrders(activeSearch,1,shop,attentionOnly,status)}
+  function changeDates(from, to){
+    setDateFrom(from); setDateTo(to);
+    loadOrders(activeSearch,1,shop,attentionOnly,orderStatus,from,to);
+  }
   function toggleAttention(){const v=!attentionOnly;setAttentionOnly(v);loadOrders(activeSearch,1,shop,v)}
   function go(page){if(page<1||page>pagination.total_pages)return;loadOrders(activeSearch,page,shop,attentionOnly);window.scrollTo({top:0,behavior:"smooth"})}
 
@@ -145,6 +154,12 @@ export default function Home() {
           </select>
           <button className={attentionOnly?"attention active":"attention"} onClick={toggleAttention} aria-pressed={attentionOnly} disabled={loading} title="Orders without an Amazon match">{attentionOnly?"Showing attention only":"Show attention"}</button>
         </div>
+      </div>
+      <div className="order-dates">
+        <label>From<input type="date" aria-label="Order date from" value={dateFrom} max={dateTo || "9999-12-30"} onChange={e=>changeDates(e.target.value,dateTo)} disabled={loading}/></label>
+        <label>To<input type="date" aria-label="Order date to" value={dateTo} min={dateFrom || undefined} max="9999-12-30" onChange={e=>changeDates(dateFrom,e.target.value)} disabled={loading}/></label>
+        <button className="attention" onClick={()=>changeDates("","")} disabled={loading || (!dateFrom && !dateTo)}>Clear dates</button>
+        <small>Order dates · UK time · includes both dates</small>
       </div>
       <form className="search" onSubmit={submitSearch}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="TikTok order, Amazon order, product or note…"/><button disabled={loading}>{loading?"Loading…":"Search"}</button></form>
       {error && <div className="error"><strong>Error:</strong> {error}</div>}

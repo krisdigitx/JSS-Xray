@@ -57,3 +57,41 @@ def test_attention_combines_with_status_and_search(client):
 
 def test_invalid_status_is_rejected(client):
     assert client.get('/api/tiktok/orders?status=invalid').status_code == 422
+
+
+@pytest.mark.parametrize('day,start,end', [
+    ('2026-09-10', '2026-09-09T23:00:00+00:00', '2026-09-10T23:00:00+00:00'),
+    ('2026-03-29', '2026-03-29T00:00:00+00:00', '2026-03-29T23:00:00+00:00'),
+    ('2026-10-25', '2026-10-24T23:00:00+00:00', '2026-10-26T00:00:00+00:00'),
+])
+def test_inclusive_uk_date_range_and_combined_filters(client, day, start, end):
+    from datetime import datetime, timedelta
+    db = next(app.dependency_overrides[get_db]())
+    shop = TikTokShop(slug='dates', name='Dates')
+    start, end = datetime.fromisoformat(start), datetime.fromisoformat(end)
+    for index, instant in enumerate([start - timedelta(microseconds=1), start, end - timedelta(microseconds=1), end, None]):
+        db.add(TikTokOrder(shop=shop, tiktok_order_id=str(index), status='COMPLETED', product_name='Date snack', create_time=instant))
+    db.commit()
+    params = dict(shop='dates', date_from=day, date_to=day, status='completed', attention_only=True, q='Date snack', page_size=1)
+    response = client.get('/api/tiktok/orders', params=params)
+    assert response.status_code == 200
+    data = response.json()
+    assert data['pagination']['total'] == 2
+    assert data['pagination']['total_pages'] == 2
+    assert data['items'][0]['tiktok_order_id'] == '2'
+    assert client.get('/api/tiktok/orders', params={**params, 'page': 2}).json()['items'][0]['tiktok_order_id'] == '1'
+    del params['date_to']
+    assert client.get('/api/tiktok/orders', params=params).json()['pagination']['total'] == 3
+    params.pop('date_from')
+    params['date_to'] = day
+    assert client.get('/api/tiktok/orders', params=params).json()['pagination']['total'] == 3
+    params.pop('date_to')
+    assert client.get('/api/tiktok/orders', params=params).json()['pagination']['total'] == 5
+
+
+@pytest.mark.parametrize('query', [
+    'date_from=2026-09-11&date_to=2026-09-10',
+    'date_from=not-a-date', 'date_to=2026-02-30', 'date_to=9999-12-31',
+])
+def test_invalid_dates(client, query):
+    assert client.get('/api/tiktok/orders?' + query).status_code == 422
