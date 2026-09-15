@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from .config import settings
+from .config import settings, settings_for_shop
 from .db import SessionLocal
 from .models import AmazonAccount, Order, TikTokOrder, TikTokShop
 from .tiktok import TikTokClient, epoch_dt, money, parse_amazon_order_id, refresh_access_token
@@ -123,28 +123,31 @@ def _find_amazon_order(db, shop_slug: str, amazon_order_id: str | None):
     return same_account or db.scalar(stmt)
 
 
-def _ensure_shop(db) -> TikTokShop:
-    shop = db.scalar(select(TikTokShop).where(TikTokShop.slug == settings.tiktok_shop_slug))
+def _ensure_shop(db, config=None) -> TikTokShop:
+    config = config or settings
+    shop = db.scalar(select(TikTokShop).where(TikTokShop.slug == config.tiktok_shop_slug))
     if not shop:
-        shop = TikTokShop(slug=settings.tiktok_shop_slug, name=settings.tiktok_shop_name)
+        shop = TikTokShop(slug=config.tiktok_shop_slug, name=config.tiktok_shop_name)
         db.add(shop)
         db.flush()
-    if settings.tiktok_access_token and not shop.access_token:
-        shop.access_token = settings.tiktok_access_token
-    if settings.tiktok_refresh_token and not shop.refresh_token:
-        shop.refresh_token = settings.tiktok_refresh_token
-    if settings.tiktok_shop_cipher:
-        shop.shop_cipher = settings.tiktok_shop_cipher
+    shop.enabled = True
+    if config.tiktok_access_token and not shop.access_token:
+        shop.access_token = config.tiktok_access_token
+    if config.tiktok_refresh_token and not shop.refresh_token:
+        shop.refresh_token = config.tiktok_refresh_token
+    if config.tiktok_shop_cipher:
+        shop.shop_cipher = config.tiktok_shop_cipher
     return shop
 
 
 def _client_for_shop(db, shop: TikTokShop) -> TikTokClient:
+    config = settings_for_shop(shop.slug)
     now = datetime.now(timezone.utc)
-    access = shop.access_token or settings.tiktok_access_token
-    refresh = shop.refresh_token or settings.tiktok_refresh_token
+    access = shop.access_token or config.tiktok_access_token
+    refresh = shop.refresh_token or config.tiktok_refresh_token
 
     if shop.access_token_expires_at and shop.access_token_expires_at <= now + timedelta(hours=6) and refresh:
-        token = refresh_access_token(settings.tiktok_app_key, settings.tiktok_app_secret, refresh)
+        token = refresh_access_token(config.tiktok_app_key, config.tiktok_app_secret, refresh)
         access = token.get("access_token") or access
         shop.access_token = access
         shop.refresh_token = token.get("refresh_token") or refresh
@@ -152,10 +155,10 @@ def _client_for_shop(db, shop: TikTokShop) -> TikTokClient:
         shop.refresh_token_expires_at = _dt_from_expiry(token.get("refresh_token_expire_in"))
         db.commit()
 
-    if not settings.tiktok_app_key or not settings.tiktok_app_secret or not access:
+    if not config.tiktok_app_key or not config.tiktok_app_secret or not access:
         raise RuntimeError("TikTok credentials are incomplete: TIKTOK_APP_KEY, TIKTOK_APP_SECRET and access token are required")
 
-    client = TikTokClient(settings.tiktok_app_key, settings.tiktok_app_secret, access, shop.shop_cipher)
+    client = TikTokClient(config.tiktok_app_key, config.tiktok_app_secret, access, shop.shop_cipher)
     if not shop.shop_cipher:
         shops = client.authorized_shops()
         match = next((s for s in shops if (s.get("name") or s.get("shop_name")) == shop.name), None) or (shops[0] if len(shops) == 1 else None)
@@ -169,14 +172,15 @@ def _client_for_shop(db, shop: TikTokShop) -> TikTokClient:
     return client
 
 
-def sync_tiktok_orders() -> dict:
+def sync_tiktok_orders(shop_slug: str | None = None) -> dict:
+    config = settings_for_shop(shop_slug or settings.tiktok_shop_slug)
     db = SessionLocal()
     shop = None
     try:
-        shop = _ensure_shop(db)
+        shop = _ensure_shop(db, config)
         client = _client_for_shop(db, shop)
         now = datetime.now(timezone.utc)
-        start = now - timedelta(hours=settings.tiktok_lookback_hours)
+        start = now - timedelta(hours=config.tiktok_lookback_hours)
         orders = client.search_orders(update_time_ge=int(start.timestamp()), update_time_lt=int(now.timestamp()))
 
         # Finance transactions are keyed by their own creation/settlement time, not

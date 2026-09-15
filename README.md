@@ -199,3 +199,24 @@ The first enabled TikTok integration is **Polaris Zone**. Configure the Kubernet
 Dashboard features include matched and unmatched TikTok orders, TikTok estimated/settled earnings, Gmail-derived Amazon purchase cost, estimated profit, monthly totals, refunds/cancellations, and per-shop last synchronization status.
 
 Required TikTok scopes for the full view are seller authorization information, seller order information, and seller finance information.
+
+
+### Multiple TikTok shops
+
+The order dashboard supports Polaris Zone, Tauri Royale, and JSS Traders through
+its shop selector. Status, date, search, and attention filters remain selected
+when switching shops. Manual sync targets the selected shop; each enabled shop
+also has its own scheduled sync job.
+
+Before deploying, provision these Kubernetes secrets with each shop's own
+`TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET`, and access/refresh tokens (and
+`TIKTOK_SHOP_CIPHER` when available):
+
+- `jss-xray-tiktok-polaris-zone`
+- `jss-xray-tiktok-tauri-royale`
+- `jss-xray-tiktok-jss-traders`
+
+The API imports Tauri Royale and JSS Traders credentials with `TAURI_ROYALE_`
+and `JSS_TRADERS_` prefixes respectively; their CronJobs use unprefixed credentials
+from their individual secrets. A successful sync creates/enables the shop record.
+The product monitor remains scoped to Polaris Zone.

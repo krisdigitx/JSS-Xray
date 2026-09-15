@@ -35,8 +35,11 @@ spec:
           envFrom:
             - secretRef: {name: {{ .Values.existingSecret }}}
 {{- range .Values.tiktokShops }}
-{{- if and .enabled (eq .slug "polaris-zone") }}
+{{- if .enabled }}
             - secretRef: {name: {{ .secretName }}}
+{{- if ne .slug "polaris-zone" }}
+              prefix: {{ printf "%s_" (.slug | replace "-" "_" | upper) | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
           resources:
