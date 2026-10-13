@@ -42,7 +42,6 @@ def settings_for_shop(slug: str) -> Settings:
     if slug == settings.tiktok_shop_slug:
         return settings
     return Settings(
-        _env_file=None,
         _env_prefix=slug.upper().replace("-", "_") + "_",
         tiktok_shop_slug=slug,
         tiktok_shop_name=TIKTOK_SHOPS[slug],
