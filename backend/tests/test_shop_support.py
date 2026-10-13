@@ -29,3 +29,11 @@ def test_manual_sync_uses_requested_shop(monkeypatch, slug):
         response = client.post('/api/tiktok/sync', params={'shop': slug})
     assert response.status_code == 200
     assert calls == [slug]
+
+
+def test_prefixed_shop_configuration_reads_local_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('TAURI_ROYALE_TIKTOK_APP_KEY', raising=False)
+    monkeypatch.setattr(settings, 'tiktok_shop_slug', 'polaris-zone')
+    (tmp_path / '.env').write_text('TAURI_ROYALE_TIKTOK_APP_KEY=local-isv-key\n')
+    assert settings_for_shop('tauri-royale').tiktok_app_key == 'local-isv-key'

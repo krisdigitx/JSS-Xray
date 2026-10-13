@@ -194,7 +194,7 @@ Gmail message IDs are stored to make ingestion idempotent.
 
 JSS XRay can now reconcile TikTok Shop orders with Amazon purchases. The TikTok order note is inspected for an Amazon order ID in the form `123-1234567-1234567`; the matching Amazon purchase cost uses the Gmail price when nonzero, otherwise the explicit `Price:` from the TikTok seller note. The note price is the whole-order cost and is not multiplied by quantity. TikTok finance APIs provide estimated or settled earnings, so estimated profit is `TikTok earnings - effective Amazon purchase cost`.
 
-The first enabled TikTok integration is **Polaris Zone**. Configure the Kubernetes secret `jss-xray-tiktok-polaris-zone` with `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET`, and either an existing access/refresh token pair or complete the seller OAuth callback at `/api/tiktok/oauth/callback`. Optional keys are `TIKTOK_SHOP_CIPHER` and `TIKTOK_OAUTH_STATE`. The Helm chart runs TikTok sync every 15 minutes by default.
+The first enabled TikTok integration is **Polaris Zone**. Configure the Kubernetes secret `jss-xray-tiktok-polaris-zone` with `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET`, and either an existing access/refresh token pair or complete the seller OAuth callback at `/api/tiktok/oauth/callback`. `TIKTOK_SHOP_CIPHER` is optional. OAuth requires `TIKTOK_OAUTH_STATE`. The Helm chart runs TikTok sync every 15 minutes by default.
 
 Dashboard features include matched and unmatched TikTok orders, TikTok estimated/settled earnings, Gmail-derived Amazon purchase cost, estimated profit, monthly totals, refunds/cancellations, and per-shop last synchronization status.
 
@@ -220,3 +220,28 @@ The API imports Tauri Royale and JSS Traders credentials with `TAURI_ROYALE_`
 and `JSS_TRADERS_` prefixes respectively; their CronJobs use unprefixed credentials
 from their individual secrets. A successful sync creates/enables the shop record.
 The product monitor remains scoped to Polaris Zone.
+
+### OAuth with the shared ISV application
+
+Keep Polaris Zone's existing application key and secret in
+`jss-xray-tiktok-polaris-zone`. Set the same ISV `TIKTOK_APP_KEY` and
+`TIKTOK_APP_SECRET` in both `jss-xray-secrets` (Tauri Royale) and
+`jss-xray-jss-traders`. Access tokens, refresh tokens, and shop ciphers must
+remain specific to each shop; do not copy these between secrets.
+
+Set a different long random `TIKTOK_OAUTH_STATE` in each of the three secrets.
+Use the intended shop's exact state in its seller authorization URL. The API
+matches state to exactly one shop before exchanging the code with that shop's
+application credentials. Missing, unknown, or duplicated states are rejected.
+Both applications use `/api/tiktok/oauth/callback` as their callback path.
+For local API configuration the ISV settings use `TAURI_ROYALE_TIKTOK_*` and
+`JSS_TRADERS_TIKTOK_*`; Kubernetes supplies these prefixes automatically.
+
+The callback verifies an existing shop's stored TikTok ID. For first
+connection, it requires an exact, unique match to the configured shop name;
+a sole shop with a different name is rejected. Only the validated shop's
+database tokens are updated. Sync reads those tokens from the database.
+These configured states are reusable routing secrets, not expiring, single-use
+OAuth sessions; rotate a shop's state after authorization for stricter replay
+protection. Deploy the updated API and configure the states before retrying
+Tauri Royale authorization.

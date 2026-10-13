@@ -1,6 +1,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from decimal import Decimal
+from secrets import compare_digest
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -11,7 +12,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import Numeric, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from .config import settings
+from .config import TIKTOK_SHOPS, settings, settings_for_shop
 from .db import get_db
 from .models import AmazonAccount, Order, OrderItem, ProductPriceHistory, TikTokOrder, TikTokProduct, TikTokShop
 from .sync import sync_orders
@@ -493,27 +494,39 @@ def tiktok_oauth_callback(
 ):
     if not code:
         raise HTTPException(status_code=400, detail="TikTok callback did not contain an authorization code")
-    if settings.tiktok_oauth_state and state != settings.tiktok_oauth_state:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
-    if not settings.tiktok_app_key or not settings.tiktok_app_secret:
-        raise HTTPException(status_code=500, detail="TikTok app credentials are not configured")
+    # A validated, unique state chooses the shop and its application credentials.
+    configs = [settings_for_shop(slug) for slug in TIKTOK_SHOPS]
+    matches = [config for config in configs if config.tiktok_oauth_state and state
+               and compare_digest(state.encode(), config.tiktok_oauth_state.encode())]
+    if len(matches) != 1:
+        raise HTTPException(status_code=400, detail="Invalid or ambiguous OAuth state")
+    config = matches[0]
+    if not config.tiktok_app_key or not config.tiktok_app_secret:
+        raise HTTPException(status_code=503, detail="TikTok app credentials are not configured for this shop")
 
-    token = exchange_auth_code(settings.tiktok_app_key, settings.tiktok_app_secret, code)
+    token = exchange_auth_code(config.tiktok_app_key, config.tiktok_app_secret, code)
     if token.get("user_type") not in (0, "0", None):
         raise HTTPException(status_code=400, detail="Authorization is not a seller token")
-
     access = token.get("access_token")
-    client = TikTokClient(settings.tiktok_app_key, settings.tiktok_app_secret, access)
-    authorized = client.authorized_shops()
-    match = next((s for s in authorized if (s.get("name") or s.get("shop_name")) == settings.tiktok_shop_name), None)
-    if not match and len(authorized) == 1:
-        match = authorized[0]
-    if not match:
-        raise HTTPException(status_code=400, detail=f"Could not identify {settings.tiktok_shop_name} in authorized shops")
+    if not access or not token.get("refresh_token"):
+        raise HTTPException(status_code=400, detail="TikTok authorization returned incomplete tokens")
 
-    shop = db.scalar(select(TikTokShop).where(TikTokShop.slug == settings.tiktok_shop_slug))
+    shop = db.scalar(select(TikTokShop).where(TikTokShop.slug == config.tiktok_shop_slug))
+    client = TikTokClient(config.tiktok_app_key, config.tiktok_app_secret, access)
+    authorized = client.authorized_shops()
+    if shop and shop.shop_id:
+        candidates = [s for s in authorized
+                      if str(s.get("id") or s.get("shop_id") or "") == shop.shop_id]
+    else:
+        candidates = [s for s in authorized
+                      if (s.get("name") or s.get("shop_name")) == config.tiktok_shop_name]
+    if len(candidates) != 1:
+        raise HTTPException(status_code=400, detail=f"Could not uniquely identify {config.tiktok_shop_name} in authorized shops")
+    match = candidates[0]
+    if not (match.get("id") or match.get("shop_id")) or not (match.get("cipher") or match.get("shop_cipher")):
+        raise HTTPException(status_code=400, detail="TikTok authorization returned incomplete shop information")
     if not shop:
-        shop = TikTokShop(slug=settings.tiktok_shop_slug, name=settings.tiktok_shop_name)
+        shop = TikTokShop(slug=config.tiktok_shop_slug, name=config.tiktok_shop_name)
         db.add(shop)
     shop.shop_id = str(match.get("id") or match.get("shop_id") or "") or None
     shop.shop_cipher = match.get("cipher") or match.get("shop_cipher")
